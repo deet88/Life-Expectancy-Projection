@@ -79,7 +79,7 @@ ok('page has three inline script blocks (theme, data, app)', blocks.length === 3
 const appSrc = blocks[1] + '\n' + blocks[2] + `
 ;({ summarize, adjustedQ, survival, lifeExp, ageAtPct, contributions, applyWhatIfs, WHATIFS, FACTORS, FACTOR_BY_ID,
    factorMult, atten, baseQ, bmiOf, bmiHR, actHR, alcHR, sleepHR, sbpHR, fvHR, formerHR, interp, devProb, sbpAt,
-   DEFAULTS, KEYS, HASH_KEYS, LIFETABLES, PREV, PARENT_HR, PARENT_DIST, SMOKE_HR, SMOKE_SPLIT, AGE_PREV,
+   DEFAULTS, KEYS, HASH_KEYS, LIFETABLES, PREV, PARENT_HR, PARENT_DIST, PARENT_CODES, ALIVE_AGE, parentHR, SMOKE_HR, SMOKE_SPLIT, AGE_PREV,
    CALIBRATIONS, withBmi, diffLE, MAX_AGE, MAX_MULT, BASE_YR, VASC_SHARE,
    stateToHash, applyHash, hashParams, clampState, onInput, onModeBtn, resetAll, syncControls, refreshAll,
    toggleTheme, exportCsv, exportPng, renderFactorTable, renderCalibration,
@@ -204,6 +204,19 @@ ok('SBP: no penalty at or below 115', A.sbpHR(100) === 1 && A.sbpHR(115) === 1);
 ok('SBP: derived 1 + 0.28 × (2^(Δ/20) − 1)', near(A.sbpHR(135), 1 + A.VASC_SHARE, 1e-12) && near(A.sbpHR(155), 1 + A.VASC_SHARE * 3, 1e-12));
 ok('SBP drifts with age at the population rate', near(A.sbpAt({ sbp: 120, age: 30 }, 70), 137, 1e-9) && A.sbpAt({ sbp: 120, age: 50 }, 50) === 120);
 ok('unknown parent = prevalence-weighted average', near(A.PARENT_HR.unk, Object.keys(A.PARENT_DIST).reduce((a, k) => a + A.PARENT_DIST[k] * A.PARENT_HR[k], 0), 1e-12));
+ok('twelve parent codes: unknown, six living, five deceased', A.PARENT_CODES.length === 12 && A.PARENT_CODES[0] === 'unk');
+ok('deceased codes map straight to the attained-age HR', A.parentHR('d_90s', 'F', 'USA') === 0.69 && A.parentHR('d_lt70', 'M', 'JPN') === 1 && A.parentHR('d_100', 'M', 'USA') === 0.58);
+{
+  // Alive at 75: the expectation over the bands she may still reach must equal
+  // the hand computation from the same survival curve.
+  const S = A.survival(A.baseQ('USA', 'F'), 75);
+  const expect = (1 - S[80]) * 1.00 + (S[80] - S[90]) * 0.83 + (S[90] - S[100]) * 0.69 + S[100] * 0.58;
+  ok(`living mother at 75 (US) = life-table expectation ${f2(expect)}`, near(A.parentHR('a_70s', 'F', 'USA'), expect, 1e-12), A.parentHR('a_70s', 'F', 'USA'));
+  ok('living mother at 75 lands between died-80s (0.83) and died-90s (0.69)', expect < 0.83 && expect > 0.69);
+  ok('living at 102 is nearly the centenarian HR', near(A.parentHR('a_100', 'M', 'USA'), 0.58, 1e-9));
+  ok('living father at 75 in Japan beats one in the US (longer tables)', A.parentHR('a_70s', 'M', 'JPN') < A.parentHR('a_70s', 'M', 'USA'));
+  ok('living parents never score worse than dying in the same decade', A.parentHR('a_70s', 'M', 'USA') <= 1 && A.parentHR('a_80s', 'M', 'USA') <= 0.83 && A.parentHR('a_90s', 'M', 'USA') <= 0.69);
+}
 ok('devProb is 0 at current age and rises', A.devProb('diabetes', 40, 40) === 0 && A.devProb('diabetes', 40, 70) > 0.1 && A.devProb('diabetes', 40, 70) < 0.3);
 ok('devProb never negative when prevalence flat', A.devProb('diabetes', 80, 90) === 0);
 
@@ -267,9 +280,17 @@ for (const p of PROFILES) {
   ok(`${tag}: education 20 > 16 > 12 > 8`, le({ ...p, education: 20 }) > le({ ...p, education: 16 }) && le({ ...p, education: 16 }) > le({ ...p, education: 12 }) && le({ ...p, education: 12 }) > le({ ...p, education: 8 }));
   ok(`${tag}: social strong > moderate > isolated`, le({ ...p, social: 'strong' }) > le({ ...p, social: 'moderate' }) && le({ ...p, social: 'moderate' }) > le({ ...p, social: 'isolated' }));
   ok(`${tag}: partnered better`, le({ ...p, partnered: true }) > le({ ...p, partnered: false }));
-  ok(`${tag}: parents 100+ > 90s > 80s > 70s = <70`, le({ ...p, mother: '100', father: '100' }) > le({ ...p, mother: '90s', father: '90s' }) && le({ ...p, mother: '90s', father: '90s' }) > le({ ...p, mother: '80s', father: '80s' }) && le({ ...p, mother: '80s', father: '80s' }) > le({ ...p, mother: '70s', father: '70s' }) && near(le({ ...p, mother: '70s', father: '70s' }), le({ ...p, mother: 'lt70', father: 'lt70' }), 1e-9));
-  ok(`${tag}: unknown parents sit between 70s and 80s`, le({ ...p, mother: 'unk', father: 'unk' }) > le({ ...p, mother: '70s', father: '70s' }) && le({ ...p, mother: 'unk', father: 'unk' }) < le({ ...p, mother: '80s', father: '80s' }));
-  ok(`${tag}: one long-lived parent helps less than two`, le({ ...p, mother: '90s', father: 'lt70' }) < le({ ...p, mother: '90s', father: '90s' }) && le({ ...p, mother: '90s', father: 'lt70' }) > le({ ...p, mother: 'lt70', father: 'lt70' }));
+  const both = c => ({ ...p, mother: c, father: c });
+  ok(`${tag}: parents died 100+ > 90s > 80s > 70s = <70`, le(both('d_100')) > le(both('d_90s')) && le(both('d_90s')) > le(both('d_80s')) && le(both('d_80s')) > le(both('d_70s')) && near(le(both('d_70s')), le(both('d_lt70')), 1e-9));
+  ok(`${tag}: unknown parents sit between died-70s and died-80s`, le(both('unk')) > le(both('d_70s')) && le(both('unk')) < le(both('d_80s')));
+  ok(`${tag}: one long-lived parent helps less than two`, le({ ...p, mother: 'd_90s', father: 'd_lt70' }) < le(both('d_90s')) && le({ ...p, mother: 'd_90s', father: 'd_lt70' }) > le(both('d_lt70')));
+  // A living parent is credited with the ages they may still reach
+  ok(`${tag}: parents living in their 70s beat parents who died in their 70s`, le(both('a_70s')) > le(both('d_70s')));
+  ok(`${tag}: parents living in their 70s beat unknown (a bonus, not a penalty)`, le(both('a_70s')) > le(both('unk')));
+  ok(`${tag}: living 70s falls between died-80s and died-90s`, le(both('a_70s')) > le(both('d_80s')) - 0.3 && le(both('a_70s')) < le(both('d_90s')));
+  ok(`${tag}: living 80s beats died 80s`, le(both('a_80s')) > le(both('d_80s')));
+  ok(`${tag}: living ranks by age: 60s < 70s < 80s < 90s < 100+`, le(both('a_60s')) < le(both('a_70s')) && le(both('a_70s')) < le(both('a_80s')) && le(both('a_80s')) < le(both('a_90s')) && le(both('a_90s')) < le(both('a_100')));
+  ok(`${tag}: living under 60 is at least the population average`, le(both('a_lt60')) >= le(both('unk')) - 1e-9);
   ok(`${tag}: mortality improvement raises LE`, le({ ...p, improve: true }) > le(p));
 }
 // Improvement magnitude: a few years for the young, less for the old
@@ -288,12 +309,12 @@ const quitGap = LE({ ...D, age: 30 }) - LE({ ...D, age: 30, smoke: 'former', cig
 const smokeGap = LE({ ...D, age: 30 }) - LE({ ...D, age: 30, smoke: 'current', cigs: '10to19' });
 ok(`quitting at 30 recovers most of the loss (${f2(quitGap)} of ${f2(smokeGap)})`, quitGap < 0.35 * smokeGap && quitGap > 0);
 // Cap
-const worst = A.withBmi({ ...D, age: 40, smoke: 'current', cigs: 'ge20', activity: 0, alcohol: 35, fruitveg: 0, sleep: 5, sbp: 165, diabetes: true, cvd: true, copd: 'severe', ckd: 'stage3', depression: true, education: 8, social: 'isolated', partnered: false, mother: 'lt70', father: 'lt70' }, 43);
+const worst = A.withBmi({ ...D, age: 40, smoke: 'current', cigs: 'ge20', activity: 0, alcohol: 35, fruitveg: 0, sleep: 5, sbp: 165, diabetes: true, cvd: true, copd: 'severe', ckd: 'stage3', depression: true, education: 8, social: 'isolated', partnered: false, mother: 'd_lt70', father: 'd_lt70' }, 43);
 const rw = A.summarize(worst);
 ok('worst-case profile hits the cap', rw.capped === true);
 ok(`worst-case 40-year-old keeps ≥ 8 years (${f2(rw.le - 40)})`, rw.le - 40 >= 8);
 ok('worst-case still far below average', rw.le < LE(worst, { baseline: true }) - 15);
-ok('best-case profile not capped and above average', !A.summarize(A.withBmi({ ...D, activity: 400, sbp: 110, mother: '90s', father: '90s' }, 22.5)).capped);
+ok('best-case profile not capped and above average', !A.summarize(A.withBmi({ ...D, activity: 400, sbp: 110, mother: 'a_90s', father: 'd_90s' }, 22.5)).capped);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 5. Calibration against published life-expectancy differences
@@ -399,7 +420,7 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
   const sample = { country: 'JPN', sex: 'F', age: 57, units: 'imperial', height: 162.5, weight: 61.2, sbp: 138,
     smoke: 'former', cigs: 'ge20', quitYears: 12, activity: 220, alcohol: 9, fruitveg: 4, sleep: 6.5,
     diabetes: true, cvd: false, depression: true, copd: 'moderate', ckd: 'none', education: 17, social: 'moderate',
-    partnered: false, mother: '90s', father: 'lt70', improve: true };
+    partnered: false, mother: 'a_80s', father: 'd_lt70', improve: true };
   Object.assign(A.state(), sample);
   A.whatif().add('bp'); A.whatif().add('sleep');
   const h = A.stateToHash();

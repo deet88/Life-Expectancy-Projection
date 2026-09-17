@@ -421,26 +421,47 @@ footer { text-align: center; font-size: 11px; color: var(--faint); padding: 10px
         </div>
         <label class="chk"><input type="checkbox" data-key="partnered" checked> Married or living with a partner</label>
         <div class="field">
-          <label for="inMother">Mother's age <span class="hint">reached, or current</span></label>
+          <label for="inMother">Mother <span class="hint">living, or age reached</span></label>
           <select id="inMother" data-key="mother">
             <option value="unk">Unknown</option>
-            <option value="lt70">Under 70</option>
-            <option value="70s">70s</option>
-            <option value="80s">80s</option>
-            <option value="90s">90s</option>
-            <option value="100">100+</option>
+            <optgroup label="Still living — her age now">
+              <option value="a_lt60">Under 60</option>
+              <option value="a_60s">60s</option>
+              <option value="a_70s">70s</option>
+              <option value="a_80s">80s</option>
+              <option value="a_90s">90s</option>
+              <option value="a_100">100+</option>
+            </optgroup>
+            <optgroup label="Passed away — age reached">
+              <option value="d_lt70">Under 70</option>
+              <option value="d_70s">70s</option>
+              <option value="d_80s">80s</option>
+              <option value="d_90s">90s</option>
+              <option value="d_100">100+</option>
+            </optgroup>
           </select>
         </div>
         <div class="field">
-          <label for="inFather">Father's age <span class="hint">reached, or current</span></label>
+          <label for="inFather">Father <span class="hint">living, or age reached</span></label>
           <select id="inFather" data-key="father">
             <option value="unk">Unknown</option>
-            <option value="lt70">Under 70</option>
-            <option value="70s">70s</option>
-            <option value="80s">80s</option>
-            <option value="90s">90s</option>
-            <option value="100">100+</option>
+            <optgroup label="Still living — his age now">
+              <option value="a_lt60">Under 60</option>
+              <option value="a_60s">60s</option>
+              <option value="a_70s">70s</option>
+              <option value="a_80s">80s</option>
+              <option value="a_90s">90s</option>
+              <option value="a_100">100+</option>
+            </optgroup>
+            <optgroup label="Passed away — age reached">
+              <option value="d_lt70">Under 70</option>
+              <option value="d_70s">70s</option>
+              <option value="d_80s">80s</option>
+              <option value="d_90s">90s</option>
+              <option value="d_100">100+</option>
+            </optgroup>
           </select>
+          <div class="hint">A living parent counts for the ages they can still reach, from the life table — alive at 75 is credited like reaching the mid-80s. Grandparents aren't modelled: there is no well-measured independent effect to cite.</div>
         </div>
       </div>
     </details>
@@ -565,7 +586,7 @@ footer { text-align: center; font-size: 11px; color: var(--faint); padding: 10px
           <h3>Reading the numbers</h3>
           <p><strong>Life expectancy</strong> is the <em>mean</em> age at death of people exactly like you; the <strong>median</strong> is the age half of them will have died by. They differ because the distribution is skewed — a small chance of dying young pulls the mean below the median.</p>
           <p><strong>"vs national average"</strong> compares you with a person of your age and sex in your country whose every factor is at the population average. The per-factor bars are computed by resetting one factor at a time to that average, holding the others as you entered them. Because the factors multiply, the bars do not add up exactly; the grey <em>interaction</em> bar is the difference, so the chart always reconciles to the headline figure. A fully low-risk profile lands 8–10 years above the average; that matches Li et al. (Circulation 2018), whose men with all five low-risk habits had a life expectancy of 87.6 at age 50 against a US average of about 79.</p>
-          <p><strong>Unknown answers.</strong> "Unknown" for a parent's age means the population average and neither helps nor hurts. There is no unknown for the other inputs: leave them at the values that describe you best.</p>
+          <p><strong>Parents.</strong> The evidence is about the age a parent <em>reached</em>, so a parent who is still living is credited with the ages they may still reach: the life table gives the chance of ending up in each band from their current age, and the expected hazard ratio is used. A mother alive at 75 will on average reach her mid-80s, so she counts as a mild advantage, not as "70s". "Unknown" means the population average and neither helps nor hurts. Grandparents are not modelled — family longevity clusters, but there is no well-measured effect independent of the parents to cite.</p>
           <p><strong>Mortality improvement.</strong> Death rates have fallen for a century. Off, the estimate assumes 2024's rates hold for the rest of your life — the "period" life expectancy quoted in the news, which understates how long today's adults will actually live. On, each future year's rate falls at the average annual pace the UN projects for your country, sex and age band over 2024–2073. It is a projection, not a promise.</p>
           <p><strong>What-if scenarios</strong> re-run the model with a change applied. Quitting smoking is modelled as it actually happens: the excess risk decays with a 7-year time constant to a 5% residual, so the benefit accrues over the years after quitting rather than arriving overnight (about 76% of the excess is gone after a decade, consistent with the 61–81% Jha et al. found for quitting in one's 40s).</p>
           <h3 style="margin-top:16px">Calibration checks</h3>
@@ -715,10 +736,29 @@ function sleepHR(h) { return h < 6 ? 1.12 : h < 7 ? 1.06 : h < 9 ? 1.00 : 1.30; 
 
 function sbpHR(v) { const d = Math.max(0, v - 115); return 1 + VASC_SHARE * (Math.pow(2, d / 20) - 1); }
 
-const PARENT_HR = { lt70: 1.00, '70s': 1.00, '80s': 0.83, '90s': 0.69, '100': 0.58 }; // Atkins 2016 ×0.83/decade; 100+: centenarian-offspring meta-analysis
+// HR by the age a parent attained. Atkins 2016: ×0.83 per decade beyond 70;
+// 100+: centenarian-offspring meta-analysis. Under 70 is held at the 70s
+// reference (conservative — the source did not quantify below it).
+const PARENT_HR = { lt70: 1.00, '70s': 1.00, '80s': 0.83, '90s': 0.69, '100': 0.58 };
 const PARENT_DIST = { lt70: .30, '70s': .27, '80s': .28, '90s': .13, '100': .02 };
+const PARENT_BANDS = [ ['lt70', 0, 70], ['70s', 70, 80], ['80s', 80, 90], ['90s', 90, 100], ['100', 100, Infinity] ];
 // "Unknown" is the population average, so it neither rewards nor penalises.
 PARENT_HR.unk = Object.keys(PARENT_DIST).reduce((a, k) => a + PARENT_DIST[k] * PARENT_HR[k], 0);
+// Input codes: unk · d_<band> (passed away, age reached) · a_<band> (still living, age now)
+const ALIVE_AGE = { a_lt60: 55, a_60s: 65, a_70s: 75, a_80s: 85, a_90s: 95, a_100: 102 };
+const PARENT_CODES = ['unk', ...Object.keys(ALIVE_AGE), ...PARENT_BANDS.map(b => 'd_' + b[0])];
+// A living parent is censored data: what matters is the age they will reach.
+// Credit the expectation over the attained-age bands, weighted by the chance
+// of reaching each one from their current age, taken from the life table.
+function parentHR(code, sex, country) {
+  if (code === 'unk') return PARENT_HR.unk;
+  if (code.startsWith('d_')) return PARENT_HR[code.slice(2)];
+  const a = ALIVE_AGE[code], S = survival(baseQ(country, sex), a);   // S[x] = P(alive at x | alive at a)
+  const alive = x => x <= a ? 1 : x > MAX_AGE + 1 ? 0 : S[x];
+  let hr = 0;
+  for (const [band, lo, hi] of PARENT_BANDS) hr += (alive(lo) - alive(hi)) * PARENT_HR[band];
+  return hr;
+}
 
 const FACTORS = [
   { id:'smoking', group:'Lifestyle', label:'Smoking',
@@ -827,19 +867,23 @@ const FACTORS = [
   { id:'parents', group:'Family', label:"Parents' longevity",
     // Geometric mean of the two parents' HRs: Atkins found the combined effect
     // well short of the product of two per-parent effects.
-    hr: s => Math.sqrt(PARENT_HR[s.mother] * PARENT_HR[s.father]),
+    hr: s => Math.sqrt(parentHR(s.mother, 'F', s.country) * parentHR(s.father, 'M', s.country)),
     dist: () => { const out = []; for (const m in PARENT_DIST) for (const f in PARENT_DIST)
       out.push({ hr: Math.sqrt(PARENT_HR[m] * PARENT_HR[f]), p: PARENT_DIST[m] * PARENT_DIST[f] }); return out; },
     value: s => `Mother ${parentLabel(s.mother)}, father ${parentLabel(s.father)}`,
-    hrText: 'per parent: <70 or 70s 1.00 · 80s 0.83 · 90s 0.69 · 100+ 0.58 · unknown = population average; combined as the geometric mean',
-    distText: 'per parent 30% < 70, 27% 70s, 28% 80s, 13% 90s, 2% 100+',
+    hrText: 'per parent, by age reached: <70 or 70s 1.00 · 80s 0.83 · 90s 0.69 · 100+ 0.58 · a living parent gets the life-table expectation over the ages they may still reach (alive at 75 ≈ 0.80) · unknown = population average; the two combine as the geometric mean',
+    distText: 'per parent 30% < 70, 27% 70s, 28% 80s, 13% 90s, 2% 100+ (age reached)',
     source: [ ['Atkins 2016 JACC (UK Biobank)', 'https://pubmed.ncbi.nlm.nih.gov/27539176/'],
               ['Centenarian-offspring meta-analysis 2026', 'https://pubmed.ncbi.nlm.nih.gov/42646838/'] ] },
 ];
 const FACTOR_BY_ID = Object.fromEntries(FACTORS.map(f => [f.id, f]));
 function yesNo(hr, p) { return [ {hr:1, p:1 - p}, {hr, p} ]; }
 function cigLabel(c) { return c === 'lt10' ? '<10' : c === 'ge20' ? '20+' : '10–19'; }
-function parentLabel(p) { return p === 'lt70' ? '<70' : p === '100' ? '100+' : p === 'unk' ? 'unknown' : p; }
+function parentLabel(p) {
+  if (p === 'unk') return 'unknown';
+  const band = p.slice(2), age = band === 'lt60' ? 'under 60' : band === 'lt70' ? 'under 70' : band === '100' ? '100+' : band;
+  return (p.startsWith('a_') ? 'living, ' : 'died ') + age;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Engine — pure functions, no DOM
@@ -991,7 +1035,7 @@ const HASH_KEYS = { country:'c', sex:'s', age:'a', units:'u', height:'h', weight
   partnered:'pa', mother:'mo', father:'fa', improve:'im' };
 const CHOICES = { sex:['M','F'], units:['metric','imperial'], smoke:['never','former','current'],
   cigs:['lt10','10to19','ge20'], copd:['none','moderate','severe'], ckd:['none','stage3','stage45'],
-  social:['strong','moderate','isolated'], mother:Object.keys(PARENT_HR), father:Object.keys(PARENT_HR) };
+  social:['strong','moderate','isolated'], mother:PARENT_CODES, father:PARENT_CODES };
 function stateToHash() {
   const parts = [];
   for (const k of KEYS) {
