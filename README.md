@@ -23,6 +23,21 @@ An actuarial life-expectancy estimate: start from your country's official life t
 
 Open `index.html` directly in a browser — no build step, no server, no dependencies beyond Chart.js (CDN, pinned with an SRI hash and a graceful fallback if it is blocked). Everything recalculates as you type.
 
+## Using the dashboard
+
+1. **Start with the basics** — country, sex, age, height, weight, blood pressure, and the Lifestyle group. These are the inputs with the largest effects, and they are the only ones with concrete defaults; everything else starts as "not entered", which means the population average.
+2. **Fill in what you know.** Waist, resting heart rate, VO₂max (a fitness watch's estimate is fine), grip strength and hs-CRP are optional and judged against people of your age and sex, so a blank field costs nothing and a value only moves the estimate by how far you sit from the norm. The Diet, Health conditions, Social & family and Environment groups work the same way.
+3. **Read the four panels.** The hero figure is your life expectancy (the *mean* age at death for people like you) with the national average beside it. The survival curve shows the chance of still being alive at each age; the dot marks the median. *What each factor is worth* ranks every answer by the years it adds or costs versus the national average. *When, not just how long* shows the spread — half of people like you die before the median, one in ten before the P10 figure.
+4. **Try a change.** Tick items in *What if you changed something?* to overlay the scenario as a dashed line; each line shows that change alone, the total applies them together.
+5. **Toggle the projection.** *Mortality keeps improving* switches from today's death rates (the "period" figure quoted in the news) to the UN's projected improvement (the "cohort" figure, typically a few years higher for younger adults).
+6. **Share or export.** *Copy link* puts every answer in the URL; *CSV* downloads the survival table; *PNG* saves the survival chart. Nothing you enter leaves the page.
+
+The methodology panel at the bottom explains every rule, lists every hazard ratio with a link to its source, and shows the calibration checks computed live.
+
+## Deploying
+
+The site is static. To publish on GitHub Pages: create a repository, push this folder (`git remote add origin <url> && git push -u origin main`), then in the repository's *Settings → Pages* choose *Deploy from a branch*, branch `main`, folder `/ (root)`. The `.nojekyll` file is already there. The `og:image` tag in `index.html` points at `https://deet88.github.io/Life-Expectancy/screenshot.png` — change it if the repository is named differently.
+
 ## Calibration
 
 The pipeline is checked against life-expectancy differences that the source papers report directly, computed live on the page and asserted by the harness:
