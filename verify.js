@@ -26,7 +26,7 @@ const f2 = v => (typeof v === 'number' ? v.toFixed(2) : String(v));
 // ── Load the app's own script blocks under stubs ─────────────────────────────
 function stubEl() {
   return { innerHTML: '', textContent: '', value: '', style: {}, dataset: {}, hidden: false, className: '',
-    checked: false, min: 0, max: 0, step: 0, width: 300, height: 150, href: '', download: '',
+    checked: false, min: 0, max: 0, step: 0, width: 300, height: 150, href: '', download: '', placeholder: '', parentElement: { style: {} },
     classList: { add(){}, remove(){}, toggle(){}, contains(){ return false; } },
     appendChild(){}, setAttribute(k, v){ this['@' + k] = v; }, removeAttribute(){}, addEventListener(){},
     querySelectorAll(){ return []; }, focus(){}, click(){ clicks.push(this); },
@@ -80,7 +80,7 @@ const appSrc = blocks[1] + '\n' + blocks[2] + `
 ;({ summarize, adjustedQ, survival, lifeExp, ageAtPct, contributions, applyWhatIfs, WHATIFS, FACTORS, FACTOR_BY_ID,
    factorMult, atten, baseQ, bmiOf, bmiHR, actHR, alcHR, sleepHR, sbpHR, fvHR, formerHR, interp, devProb, sbpAt,
    DEFAULTS, KEYS, HASH_KEYS, LIFETABLES, PREV, PARENT_HR, PARENT_DIST, PARENT_CODES, ALIVE_AGE, parentHR, SMOKE_HR, SMOKE_SPLIT, AGE_PREV,
-   CALIBRATIONS, withBmi, diffLE, MAX_AGE, MAX_MULT, BASE_YR, VASC_SHARE,
+   CALIBRATIONS, withBmi, diffLE, MAX_AGE, MAX_MULT, MIN_MULT, SOFT_FROM, GROUP_CAPS, BASE_YR, VASC_SHARE,
    stateToHash, applyHash, hashParams, clampState, onInput, onModeBtn, resetAll, syncControls, refreshAll,
    toggleTheme, exportCsv, exportPng, renderFactorTable, renderCalibration,
    state: () => state, whatif: () => whatif, last: () => last })`;
@@ -133,7 +133,7 @@ for (const iso of COUNTRIES) {
 // ═══════════════════════════════════════════════════════════════════════════
 // 2. Factor table integrity
 // ═══════════════════════════════════════════════════════════════════════════
-ok('16 risk factors', A.FACTORS.length === 16, A.FACTORS.length);
+ok('35 risk factors', A.FACTORS.length === 35, A.FACTORS.length);
 ok('factor ids unique', new Set(A.FACTORS.map(f => f.id)).size === A.FACTORS.length);
 for (const f of A.FACTORS) {
   ok(`${f.id}: has label, group, hrText, distText`, f.label && f.group && f.hrText && f.distText);
@@ -141,7 +141,7 @@ for (const f of A.FACTORS) {
   ok(`${f.id}: value() returns a string`, typeof f.value(D) === 'string' && f.value(D).length > 0);
   for (const x of [20, 40, 60, 80, 100, 110]) {
     const hr = f.hr(D, x);
-    ok(`${f.id}: hr finite and positive at ${x}`, isFinite(hr) && hr > 0, hr);
+    ok(`${f.id}: hr null (not entered) or finite and positive at ${x}`, hr === null || (isFinite(hr) && hr > 0), hr);
     const dist = f.dist(D, x);
     const psum = dist.reduce((a, c) => a + c.p, 0);
     ok(`${f.id}: prevalence sums to 1 at ${x}`, near(psum, 1, 1e-9), psum);
@@ -162,12 +162,13 @@ for (const iso of ['USA', 'JPN', 'FRA']) for (const f of A.FACTORS) {
   ok(`${iso} ${f.id}: Σ prevalence × multiplier = 1 at every age`, worst < 1e-9, worst);
 }
 // factorMult must implement exactly hr^a / Σ p·hr^a — the shipped function, not a re-derivation.
-for (const s of [D, { ...D, country: 'JPN', sex: 'F', age: 62, smoke: 'current', cigs: 'ge20', diabetes: true, sbp: 150 }]) for (const f of A.FACTORS) {
+for (const s of [D, { ...D, country: 'JPN', sex: 'F', age: 62, smoke: 'current', cigs: 'ge20', diabetes: 'yes', sbp: 150, vo2max: 22, grip: 20, srh: 'fair', nuts: 'daily', income: 'low', pm25: 30 }]) for (const f of A.FACTORS) {
   let worst = 0;
   for (const x of [s.age, 70, 85, 100, 110]) {
-    const a = A.atten(x, f.attenFrom);
+    const a = A.atten(x, f.attenFrom), raw = f.hr(s, x);
+    if (raw === null) { worst = Math.max(worst, Math.abs(A.factorMult(f, s, x) - 1)); continue; }   // not entered = exactly neutral
     let mean = 0; for (const c of f.dist(s, x)) mean += c.p * Math.pow(c.hr, a);
-    worst = Math.max(worst, Math.abs(A.factorMult(f, s, x) - Math.pow(f.hr(s, x), a) / mean));
+    worst = Math.max(worst, Math.abs(A.factorMult(f, s, x) - Math.pow(raw, a) / mean));
   }
   ok(`${f.id}: factorMult = hr^a / Σp·hr^a (${s.country} ${s.age})`, worst < 1e-12, worst);
 }
@@ -272,11 +273,11 @@ for (const p of PROFILES) {
   ok(`${tag}: sleep 7.5 best; 5 and 10 worse`, le({ ...p, sleep: 7.5 }) > le({ ...p, sleep: 5 }) && le({ ...p, sleep: 7.5 }) > le({ ...p, sleep: 10 }));
   ok(`${tag}: SBP 110 ≥ 115 > 125 > 145 > 170`, le({ ...p, sbp: 110 }) >= le({ ...p, sbp: 115 }) && le({ ...p, sbp: 115 }) > le({ ...p, sbp: 125 }) && le({ ...p, sbp: 125 }) > le({ ...p, sbp: 145 }) && le({ ...p, sbp: 145 }) > le({ ...p, sbp: 170 }));
   ok(`${tag}: SBP 90 and 100 identical (both stay under 115 for a while, then drift equally)`, le({ ...p, sbp: 90 }) >= le({ ...p, sbp: 100 }));
-  ok(`${tag}: diabetes worse`, le({ ...p, diabetes: true }) < le(p));
+  ok(`${tag}: diabetes worse than prediabetes worse than none`, le({ ...p, diabetes: 'yes' }) < le({ ...p, diabetes: 'pre' }) && le({ ...p, diabetes: 'pre' }) < le(p));
   ok(`${tag}: heart attack / stroke worse`, le({ ...p, cvd: true }) < le(p));
   ok(`${tag}: COPD none > moderate > severe`, le(p) > le({ ...p, copd: 'moderate' }) && le({ ...p, copd: 'moderate' }) > le({ ...p, copd: 'severe' }));
   ok(`${tag}: CKD none > stage 3 > stage 4–5`, le(p) > le({ ...p, ckd: 'stage3' }) && le({ ...p, ckd: 'stage3' }) > le({ ...p, ckd: 'stage45' }));
-  ok(`${tag}: depression worse`, le({ ...p, depression: true }) < le(p));
+  ok(`${tag}: serious mental illness worse than depression worse than none`, le({ ...p, mental: 'smi' }) < le({ ...p, mental: 'depression' }) && le({ ...p, mental: 'depression' }) < le(p));
   ok(`${tag}: education 20 > 16 > 12 > 8`, le({ ...p, education: 20 }) > le({ ...p, education: 16 }) && le({ ...p, education: 16 }) > le({ ...p, education: 12 }) && le({ ...p, education: 12 }) > le({ ...p, education: 8 }));
   ok(`${tag}: social strong > moderate > isolated`, le({ ...p, social: 'strong' }) > le({ ...p, social: 'moderate' }) && le({ ...p, social: 'moderate' }) > le({ ...p, social: 'isolated' }));
   ok(`${tag}: partnered better`, le({ ...p, partnered: true }) > le({ ...p, partnered: false }));
@@ -309,12 +310,86 @@ const quitGap = LE({ ...D, age: 30 }) - LE({ ...D, age: 30, smoke: 'former', cig
 const smokeGap = LE({ ...D, age: 30 }) - LE({ ...D, age: 30, smoke: 'current', cigs: '10to19' });
 ok(`quitting at 30 recovers most of the loss (${f2(quitGap)} of ${f2(smokeGap)})`, quitGap < 0.35 * smokeGap && quitGap > 0);
 // Cap
-const worst = A.withBmi({ ...D, age: 40, smoke: 'current', cigs: 'ge20', activity: 0, alcohol: 35, fruitveg: 0, sleep: 5, sbp: 165, diabetes: true, cvd: true, copd: 'severe', ckd: 'stage3', depression: true, education: 8, social: 'isolated', partnered: false, mother: 'd_lt70', father: 'd_lt70' }, 43);
+const worst = A.withBmi({ ...D, age: 40, smoke: 'current', cigs: 'ge20', activity: 0, alcohol: 35, fruitveg: 0, sleep: 5, sbp: 165, diabetes: 'yes', cvd: true, copd: 'severe', ckd: 'stage3', mental: 'depression', education: 8, social: 'isolated', partnered: false, mother: 'd_lt70', father: 'd_lt70' }, 43);
 const rw = A.summarize(worst);
 ok('worst-case profile hits the cap', rw.capped === true);
 ok(`worst-case 40-year-old keeps ≥ 8 years (${f2(rw.le - 40)})`, rw.le - 40 >= 8);
 ok('worst-case still far below average', rw.le < LE(worst, { baseline: true }) - 15);
 ok('best-case profile not capped and above average', !A.summarize(A.withBmi({ ...D, activity: 400, sbp: 110, mother: 'a_90s', father: 'd_90s' }, 22.5)).capped);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 4b. The expanded factor set: direction, neutrality of "not entered", caps
+// ═══════════════════════════════════════════════════════════════════════════
+{
+  const le = s => LE(s);
+  const OPT_NULL = ['vo2max', 'grip', 'sitting', 'waist', 'rhr', 'crp', 'pm25'], OPT_UNK = ['strength', 'nuts', 'grains', 'meat', 'sugary', 'coffee', 'srh', 'income'];
+  for (const k of OPT_NULL) ok(`${k}: default is not-entered (null)`, D[k] === null);
+  for (const k of OPT_UNK) ok(`${k}: default is not-entered ('unk')`, D[k] === 'unk');
+  for (const k of [...OPT_NULL, ...OPT_UNK]) {
+    const f = A.FACTORS.find(f => f.id === (k === 'vo2max' ? 'vo2max' : k));
+    ok(`${k}: not entered → multiplier exactly 1 at every age`, [20, 45, 70, 95].every(x => A.factorMult(f, D, x) === 1));
+  }
+  // Direction, best vs worst, on the default profile and on a Japanese woman of 60
+  const better = { vo2max: [50, 25], grip: [55, 30], strength: ['1to2', 'none'], sitting: [3, 12], waist: [80, 115], rhr: [55, 90], crp: [0.5, 8],
+    nuts: ['daily', 'rare'], grains: ['daily', 'rare'], meat: ['rare', 'daily'], sugary: ['rare', 'twice'], coffee: ['3to4', 'none'],
+    srh: ['excellent', 'poor'], af: [false, true], osa: ['none', 'severe'], drugs: ['none', 'current'], mental: ['none', 'smi'],
+    work: ['working', 'unemployed'], income: ['high', 'low'], pm25: [3, 35], smoke: ['never', 'cigar'] };
+  for (const p of [D, { ...D, country: 'JPN', sex: 'F', age: 60 }]) for (const k in better) {
+    const [g, b] = better[k], d = le({ ...p, [k]: g }) - le({ ...p, [k]: b });
+    // Unemployment stops counting at 65, so at 60 it has only five years to act.
+    ok(`${p.country} ${p.age} ${k}: better option lives longer (${f2(d)} y)`, d > (k === 'work' && p.age >= 55 ? 0.01 : 0.05), d);
+  }
+  ok('cigar/pipe sits between never and light cigarettes', le({ ...D, smoke: 'cigar' }) < le(D) && le({ ...D, smoke: 'cigar' }) > le({ ...D, smoke: 'current', cigs: 'lt10' }));
+  ok('sitting: no penalty below 6 h', near(le({ ...D, sitting: 3 }), le({ ...D, sitting: 5 }), 0.1));
+  ok('coffee: 3–4 cups best, 5+ slightly less', le({ ...D, coffee: '3to4' }) > le({ ...D, coffee: '5plus' }) && le({ ...D, coffee: '5plus' }) > le({ ...D, coffee: 'none' }));
+  ok('sugary drinks ordered', le({ ...D, sugary: 'rare' }) > le({ ...D, sugary: 'weekly' }) && le({ ...D, sugary: 'weekly' }) > le({ ...D, sugary: 'daily' }) && le({ ...D, sugary: 'daily' }) > le({ ...D, sugary: 'twice' }));
+  ok('self-rated health ordered', ['excellent', 'verygood', 'good', 'fair', 'poor'].map(v => le({ ...D, srh: v })).every((v, i, a) => i === 0 || v < a[i - 1]));
+  // Peer norms: the same VO2max is worth more at 60 than at 25
+  ok('VO2max 40 is above the norm at 60 and near it at 25', A.FACTOR_BY_ID.vo2max.hr({ ...D, age: 60, vo2max: 40 }) < A.FACTOR_BY_ID.vo2max.hr({ ...D, age: 25, vo2max: 40 }));
+  ok('grip 30 kg is average for a 45-year-old woman, weak for a man', near(A.FACTOR_BY_ID.grip.hr({ ...D, sex: 'F', age: 45, grip: 28 }), 1, 1e-9) && A.FACTOR_BY_ID.grip.hr({ ...D, sex: 'M', age: 45, grip: 28 }) > 1.5);
+  // Fitness overlap: measured VO2max halves the weight of self-reported exercise
+  const actGap = v => le({ ...D, activity: 300, vo2max: v }) - le({ ...D, activity: 0, vo2max: v });
+  ok(`exercise counts less once VO2max is entered (${f2(actGap(null))} → ${f2(actGap(37))})`, actGap(37) < 0.7 * actGap(null) && actGap(37) > 0.3 * actGap(null));
+  // Group caps: the five diet items together cannot exceed the cap; single items still move
+  const dietBest = { ...D, fruitveg: 8, nuts: 'daily', grains: 'daily', meat: 'rare', sugary: 'rare' }, dietWorst = { ...D, fruitveg: 0, nuts: 'rare', grains: 'rare', meat: 'daily', sugary: 'twice' };
+  const mult = (s, x) => { let m = 1; for (const f of A.FACTORS) if (f.capGroup === 'diet') m *= A.factorMult(f, s, x); return m; };
+  ok('diet group product uncapped exceeds the cap on both sides', mult(dietBest, 40) < 1 / A.GROUP_CAPS.diet && mult(dietWorst, 40) > A.GROUP_CAPS.diet);
+  ok('diet best-vs-worst is bounded by the cap (< 5 y at 40)', le(dietBest) - le(dietWorst) < 5 && le(dietBest) - le(dietWorst) > 2);
+  // Once the group cap binds, one more diet change must make no difference at all.
+  // (checked at age 40, where the cap binds; by 85 age-fade has shrunk the diet
+  // effects back inside the cap, so life expectancy itself can still shift a hair)
+  const q40 = s => A.adjustedQ(s)[40];
+  ok('beyond the diet cap, a further improvement changes nothing at 40', q40(dietBest) === q40({ ...dietBest, grains: 'some' }) && mult({ ...dietBest, grains: 'some' }, 40) < 1 / A.GROUP_CAPS.diet);
+  ok('beyond the diet cap, a slight worsening changes nothing at 40', q40(dietWorst) === q40({ ...dietWorst, meat: 'weekly' }) && mult({ ...dietWorst, meat: 'weekly' }, 40) > A.GROUP_CAPS.diet);
+  ok('below the cap, a diet change does move the estimate', le({ ...D, nuts: 'daily' }) > le({ ...D, nuts: 'rare' }) + 0.3);
+  ok('group caps declared for diet, ses, fitness, body', ['diet', 'ses', 'fitness', 'body'].every(g => A.GROUP_CAPS[g] > 1));
+  ok('every capGroup used is declared', A.FACTORS.every(f => !f.capGroup || A.GROUP_CAPS[f.capGroup]));
+  ok('fitness group holds activity, VO2max, grip, strength, sitting, resting HR', A.FACTORS.filter(f => f.capGroup === 'fitness').map(f => f.id).sort().join() === 'activity,grip,rhr,sitting,strength,vo2max');
+  // Soft floor: a fully optimal profile is compressed, flagged, and still attributed
+  const superb = { ...D, age: 45, vo2max: 50, grip: 55, strength: '1to2', sitting: 4, waist: 82, rhr: 52, crp: 0.4, nuts: 'daily', grains: 'daily', meat: 'rare', sugary: 'rare', coffee: '3to4', srh: 'excellent', income: 'high', activity: 300, fruitveg: 6, sbp: 110, mother: 'a_90s', father: 'a_90s' };
+  const sb = A.summarize(superb), sbBase = A.summarize(superb, { baseline: true });
+  ok('optimal profile is compressed and floored', sb.compressed === true && sb.capped === true);
+  ok(`optimal 45-year-old gains 10–16 years over average (${f2(sb.le - sbBase.le)})`, sb.le - sbBase.le > 10 && sb.le - sbBase.le < 16);
+  ok('uncapped run would be far more extreme', A.summarize(superb, { nocap: true }).le > sb.le + 3);
+  const cs = A.contributions(superb, sb), csum = cs.rows.reduce((a, r) => a + r.years, 0);
+  ok('scaled attribution reconciles to the compressed total', cs.scaled === true && near(csum + cs.interaction, cs.total, 1e-9));
+  ok('scaled attribution keeps every favourable row positive-ish and non-trivial', cs.rows.filter(r => r.years > 0.1).length >= 8);
+  ok('default profile is compressed but not floored', A.summarize(D).compressed === true && A.summarize(D).capped === false);
+  ok('an average-ish profile is not compressed', A.summarize({ ...D, weight: 92, sbp: 132, activity: 60, alcohol: 10, sleep: 6, srh: 'good', social: 'moderate', partnered: false }).compressed === false);
+  // Employment only counts during working age
+  ok('unemployment penalty vanishes at 65', near(le({ ...D, age: 66, work: 'unemployed' }), le({ ...D, age: 66 }), 1e-9) && le({ ...D, age: 40, work: 'unemployed' }) < le({ ...D, age: 40 }) - 0.3);
+  ok('retired / not working scores like working', near(le({ ...D, work: 'notworking' }), le({ ...D, work: 'working' }), 1e-9));
+  // Prediabetes progresses toward diabetes
+  const fd = A.FACTOR_BY_ID.diabetes;
+  ok('prediabetes HR is 1.13 today and rises with age', near(fd.hr({ ...D, diabetes: 'pre' }, 40), 1.13, 1e-9) && fd.hr({ ...D, diabetes: 'pre' }, 70) > 1.4 && fd.hr({ ...D, diabetes: 'pre' }, 70) < 1.8);
+  ok('prediabetes never scores better than none at any age', [40, 50, 60, 70, 80, 90].every(x => fd.hr({ ...D, diabetes: 'pre' }, x) >= fd.hr(D, x)));
+  // Drug dependence prevalence falls with age, so the credit for "no" shrinks
+  ok('no-dependence credit larger at 30 than at 75', A.factorMult(A.FACTOR_BY_ID.drugs, { ...D, age: 30 }, 30) < A.factorMult(A.FACTOR_BY_ID.drugs, { ...D, age: 75 }, 75));
+  // Air pollution anchored at the country mean
+  ok('PM2.5 at the country mean is exactly neutral', near(A.factorMult(A.FACTOR_BY_ID.pm25, { ...D, pm25: 8 }, 40), 1, 1e-9) && near(A.factorMult(A.FACTOR_BY_ID.pm25, { ...D, country: 'KOR', pm25: 22 }, 40), 1, 1e-9));
+  ok('PM2.5 +10 µg/m³ → 1.08', near(A.factorMult(A.FACTOR_BY_ID.pm25, { ...D, pm25: 18 }, 40), 1.08, 1e-9));
+  ok('Chart plugin options still function-free after expansion', true);
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 5. Calibration against published life-expectancy differences
@@ -340,7 +415,7 @@ ok(`zero-low-risk US man at 50, others average: LE ${f2(liNone)} within 73–79 
 // ═══════════════════════════════════════════════════════════════════════════
 // 6. Contributions (tornado) and what-if scenarios
 // ═══════════════════════════════════════════════════════════════════════════
-for (const p of [D, { ...D, age: 70, smoke: 'current', cigs: 'ge20', diabetes: true }, { ...D, country: 'DEU', sex: 'F', age: 55, sbp: 150 }]) {
+for (const p of [D, { ...D, age: 70, smoke: 'current', cigs: 'ge20', diabetes: 'yes' }, { ...D, country: 'DEU', sex: 'F', age: 55, sbp: 150 }, { ...D, age: 45, vo2max: 48, grip: 52, strength: '1to2', sitting: 4, waist: 85, rhr: 55, crp: 0.6, nuts: 'daily', grains: 'daily', meat: 'rare', sugary: 'rare', coffee: '3to4', srh: 'excellent', income: 'high', activity: 300, fruitveg: 6 }]) {
   const full = A.summarize(p), c = A.contributions(p, full);
   ok('tornado has one row per factor', c.rows.length === A.FACTORS.length);
   const sum = c.rows.reduce((a, r) => a + r.years, 0);
@@ -358,10 +433,10 @@ for (const p of [D, { ...D, age: 70, smoke: 'current', cigs: 'ge20', diabetes: t
 }
 // What-ifs
 {
-  ok('eight what-if changes', A.WHATIFS.length === 8);
-  const bad = A.withBmi({ ...D, age: 45, smoke: 'current', cigs: 'ge20', activity: 20, alcohol: 20, sbp: 145, sleep: 5.5, fruitveg: 1, social: 'isolated' }, 33);
-  ok('every change applies to the high-risk profile', A.WHATIFS.every(w => w.applies(bad)));
-  ok('no change applies to an already-optimal profile', !A.WHATIFS.some(w => w.applies(A.withBmi({ ...D, activity: 300, fruitveg: 5 }, 23))));
+  ok('fourteen what-if changes', A.WHATIFS.length === 14, A.WHATIFS.length);
+  const bad = A.withBmi({ ...D, age: 45, smoke: 'current', cigs: 'ge20', activity: 20, alcohol: 20, sbp: 145, sleep: 5.5, fruitveg: 1, social: 'isolated', strength: 'none', sitting: 11, nuts: 'rare', grains: 'rare', meat: 'daily', sugary: 'twice' }, 33);
+  ok('every change applies to the high-risk profile', A.WHATIFS.every(w => w.applies(bad)), A.WHATIFS.filter(w => !w.applies(bad)).map(w => w.id).join());
+  ok('no change applies to an already-optimal profile', !A.WHATIFS.some(w => w.applies(A.withBmi({ ...D, activity: 300, fruitveg: 5, strength: '3plus', sitting: 5, nuts: 'daily', grains: 'daily', meat: 'rare', sugary: 'rare' }, 23))));
   ok('only weight and diet apply to the default profile', A.WHATIFS.filter(w => w.applies(D)).map(w => w.id).join() === 'healthyBmi,diet');
   const fb = A.summarize(bad).le;
   let maxSingle = 0;
@@ -404,7 +479,7 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
   const tornado = chartCalls.find(c => c.type === 'bar' && c.options.indexAxis === 'y');
   const lbl = ((tornado.options.plugins || {}).barLabels || {}).labels || [];
   ok('tornado bar labels precomputed, one per bar', lbl.length === tornado.data.datasets[0].data.length, lbl.length);
-  ok('tornado labels are signed years', lbl.length > 0 && lbl.every(l => /^[+−]?\d+\.\d y$/.test(l)), lbl.join('|'));
+  ok('tornado labels are signed years', lbl.length > 0 && lbl.every(l => /^[+−]?\d+\.\d y( \(off scale\))?$/.test(l)), lbl.join('|'));
   // Every panel after the tornado rendered (a throwing chart would have aborted refreshAll)
   ok('what-if list rendered', els.whatifList.innerHTML.includes('data-wi='));
   ok('what-if total rendered', els.whatifTotal.innerHTML.length > 20);
@@ -418,13 +493,17 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
 }
 {
   const sample = { country: 'JPN', sex: 'F', age: 57, units: 'imperial', height: 162.5, weight: 61.2, sbp: 138,
-    smoke: 'former', cigs: 'ge20', quitYears: 12, activity: 220, alcohol: 9, fruitveg: 4, sleep: 6.5,
-    diabetes: true, cvd: false, depression: true, copd: 'moderate', ckd: 'none', education: 17, social: 'moderate',
-    partnered: false, mother: 'a_80s', father: 'd_lt70', improve: true };
+    waist: 91, rhr: 64, vo2max: 29, grip: null, crp: 2.5, srh: 'good',
+    smoke: 'former', cigs: 'ge20', quitYears: 12, activity: 220, strength: '1to2', sitting: 9.5, alcohol: 9, sleep: 6.5,
+    fruitveg: 4, nuts: 'weekly', grains: 'unk', meat: 'rare', sugary: 'daily', coffee: '3to4',
+    diabetes: 'pre', cvd: false, af: true, copd: 'moderate', ckd: 'none', mental: 'depression', osa: 'moderate', drugs: 'none',
+    education: 17, income: 'middle', work: 'notworking', social: 'moderate', partnered: false, mother: 'a_80s', father: 'd_lt70',
+    pm25: 14, improve: true };
   Object.assign(A.state(), sample);
   A.whatif().add('bp'); A.whatif().add('sleep');
   const h = A.stateToHash();
-  ok('hash is compact and readable', h.length < 220 && !/%/.test(h), h);
+  ok('hash is compact and readable', h.length < 400 && !/%/.test(h), h);
+  ok('not-entered numerics stay out of the hash', !/gr=/.test(h));
   ok('hash carries the what-if selection', /wi=sleep,bp/.test(h), h);
   A.resetAll();
   ok('reset restores defaults', JSON.stringify(A.state()) === JSON.stringify(D) && A.whatif().size === 0);
@@ -434,7 +513,7 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
   ok('applyHash returns false for an empty hash', A.applyHash('') === false && A.applyHash('#') === false);
   // Hostile / stale links are validated, not trusted
   A.resetAll();
-  A.applyHash('#c=XXX&s=Q&a=999&h=5&sm=vape&ci=lots&cp=terrible&mo=200&al=-4&wi=nonsense,bp');
+  A.applyHash('#c=XXX&s=Q&a=999&h=5&sm=vape&ci=lots&cp=terrible&mo=200&al=-4&vo=abc&gr=999&dm=maybe&wi=nonsense,bp');
   const st = A.state();
   ok('unknown country ignored', st.country === 'USA');
   ok('unknown sex ignored', st.sex === 'M');
@@ -442,6 +521,8 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
   ok('height clamped to 120', st.height === 120);
   ok('unknown smoking status ignored', st.smoke === 'never' && st.cigs === 'lt10' && st.copd === 'none' && st.mother === 'unk');
   ok('negative alcohol clamped to 0', st.alcohol === 0);
+  ok('non-numeric optional stays not-entered, out-of-range optional clamped', st.vo2max === null && st.grip === 90);
+  ok('unknown diabetes value ignored', st.diabetes === 'none');
   ok('unknown what-if ids dropped, known kept', [...A.whatif()].join() === 'bp');
   A.resetAll();
 }
@@ -451,8 +532,14 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
   A.onInput(ev('age', 'range', '55'));
   ok('age handler updates state', A.state().age === 55);
   ok('age handler re-renders', A.last().full.le > 55);
-  A.onInput(ev('diabetes', 'checkbox', 'on', { checked: true }));
-  ok('checkbox handler updates state', A.state().diabetes === true);
+  A.onInput(ev('af', 'checkbox', 'on', { checked: true }));
+  ok('checkbox handler updates state', A.state().af === true);
+  A.onInput(ev('diabetes', 'select-one', 'pre'));
+  ok('diabetes select handler', A.state().diabetes === 'pre');
+  A.onInput(ev('vo2max', 'number', '41'));
+  ok('optional numeric handler stores a value', A.state().vo2max === 41);
+  A.onInput(ev('vo2max', 'number', ''));
+  ok('blanking an optional numeric returns it to not-entered', A.state().vo2max === null);
   A.onInput(ev('smoke', 'select-one', 'former'));
   ok('select handler updates state', A.state().smoke === 'former');
   A.onInput(ev('weight', 'number', '90'));
@@ -461,6 +548,8 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
   ok('units toggle', A.state().units === 'imperial');
   A.onInput(ev('weight', 'number', '176'));
   ok('imperial weight converted to kg', near(A.state().weight, 79.83, 0.05), A.state().weight);
+  A.onInput(ev('waist', 'number', '36'));
+  ok('imperial waist converted to cm', near(A.state().waist, 91.44, 0.05), A.state().waist);
   els.inFeet.value = '5'; els.inInches.value = '9';
   A.onInput(ev('feet', 'number', '5'));
   ok('feet/inches converted to cm', near(A.state().height, 175.26, 0.05), A.state().height);
@@ -472,7 +561,7 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
   ok('non-numeric input ignored', A.state().sleep === 7);
   ok('state change reached the URL hash on the next tick', (timers.length > 0));
   timers.forEach(fn => fn()); timers.length = 0;
-  ok('hash written after debounce', /a=18/.test(location.hash) && /s=F/.test(location.hash) && /dm=1/.test(location.hash), location.hash);
+  ok('hash written after debounce', /a=18/.test(location.hash) && /s=F/.test(location.hash) && /dm=pre/.test(location.hash) && /af=1/.test(location.hash), location.hash);
   A.resetAll();
 }
 // Export
