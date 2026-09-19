@@ -1,0 +1,1896 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Life Expectancy Dashboard</title>
+<meta name="description" content="An actuarial life-expectancy estimate: a national life table for 17 countries, adjusted by published hazard ratios for the risk factors with the strongest evidence, with every number cited.">
+<meta property="og:title" content="Life Expectancy Dashboard">
+<meta property="og:description" content="Start from your country's life table, apply the best-evidenced risk factors, and see your survival curve, the years each factor adds or costs, and what changing them would do.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://deet88.github.io/Life-Expectancy/screenshot.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0d14'/%3E%3Cpath d='M5 8c0 0 5 0 9 6s5 12 13 12' fill='none' stroke='%235d6af0' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E">
+<script>
+// Apply saved theme before first paint to avoid a flash of the wrong mode
+(function(){
+  const t = localStorage.getItem('lifex-theme') ||
+    (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+  document.documentElement.dataset.theme = t;
+})();
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"
+  integrity="sha384-bs/nf9FbdNouRbMiFcrcZfLXYPKiPaGVGplVbv7dLGECccEXDW+S3zjqSKR5ZEaD"
+  crossorigin="anonymous"></script>
+<style>
+:root {
+  --bg: #0b0d14; --surface: #13151f; --card: #1a1d2b; --card2: #1f2233;
+  --border: #272b3d; --border2: #323654; --text: #e4e8f0; --muted: #7a8499;
+  --faint: #4a5168; --accent: #5d6af0; --accent-light: #818cf8;
+  --green: #22c55e; --red: #f04f5a; --amber: #f59e0b; --strong: #fff;
+  --hover: rgba(255,255,255,.015); --line-faint: rgba(255,255,255,.04);
+  /* Chart series. Validated with the dataviz palette checks against --card:
+     accent+green pass every check; green/red FAILED colour-blind separation
+     (deutan ΔE 4.0), so gains are drawn in the accent and losses in red. */
+  --chart-you: #5d6af0; --chart-improved: #16a34a; --chart-avg: #7a8499;
+  --chart-gain: #5d6af0; --chart-loss: #f04f5a; --chart-grid: rgba(255,255,255,.06);
+  --radius: 10px; color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --bg: #eef1f6; --surface: #ffffff; --card: #ffffff; --card2: #f3f5fa;
+  --border: #e2e6ef; --border2: #cdd3e1; --text: #232a3b; --muted: #5c6577;
+  --faint: #98a0b3; --accent: #4d5ae3; --accent-light: #4553d6;
+  --green: #15803d; --red: #d02f3d; --amber: #b45309; --strong: #141a2a;
+  --hover: rgba(20,30,60,.03); --line-faint: rgba(20,30,60,.06);
+  --chart-you: #4d5ae3; --chart-improved: #15803d; --chart-avg: #5c6577;
+  --chart-gain: #4d5ae3; --chart-loss: #d02f3d; --chart-grid: rgba(20,30,60,.08);
+  color-scheme: light;
+}
+body, header, .sidebar, .panel, .method-panel, .tile {
+  transition: background-color .25s ease, border-color .25s ease, color .25s ease;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* .field sets display:flex, which would otherwise outrank the UA's [hidden] rule */
+[hidden] { display: none !important; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+  background: var(--bg); color: var(--text); min-height: 100vh; font-size: 14px; line-height: 1.5;
+  display: flex; flex-direction: column; }
+
+header { background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 14px 24px; display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; position: sticky; top: 0; z-index: 100; }
+.header-brand h1 { font-size: 16px; font-weight: 700; color: var(--strong); letter-spacing: -.01em; }
+.header-brand h1 em { font-style: normal; color: var(--accent-light); }
+.header-brand p { font-size: 11px; color: var(--muted); margin-top: 1px; }
+.header-right { display: flex; align-items: center; gap: 20px; }
+.header-stats { display: flex; gap: 28px; }
+.hstat { text-align: right; }
+.hstat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
+.hstat-value { font-size: 20px; font-weight: 800; color: var(--strong); letter-spacing: -.02em; line-height: 1.2; }
+.hstat-value.dyn { color: var(--accent-light); }
+.btn { padding: 6px 12px; border-radius: 7px; border: 1px solid var(--border2);
+  background: var(--card); color: var(--muted); font-size: 11px; font-weight: 500;
+  cursor: pointer; transition: all .15s; white-space: nowrap; font-family: inherit; }
+.btn:hover { background: var(--card2); color: var(--text); }
+.btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.btn-full { flex: 1; text-align: center; }
+
+.layout { display: grid; grid-template-columns: 290px 1fr; flex: 1; min-height: 0; }
+
+/* ── Sidebar: grouped inputs ─────────────────────────────────── */
+.sidebar { background: var(--surface); border-right: 1px solid var(--border);
+  padding: 14px 12px 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.sidebar-label { font-size: 10px; font-weight: 700; color: var(--faint);
+  text-transform: uppercase; letter-spacing: .1em; padding: 0 4px; }
+.group { border: 1px solid var(--border); border-radius: 9px; background: var(--card); }
+.group summary { list-style: none; cursor: pointer; padding: 9px 12px; display: flex;
+  align-items: center; justify-content: space-between; font-size: 12px; font-weight: 700;
+  color: var(--text); user-select: none; }
+.group summary::-webkit-details-marker { display: none; }
+.group summary::after { content: '▾'; color: var(--faint); font-size: 12px; transition: transform .15s; margin-left: 6px; }
+.group:not([open]) summary::after { transform: rotate(-90deg); }
+.group summary .gsum { font-size: 10px; font-weight: 500; color: var(--muted); margin-left: 8px; flex: 1; text-align: right;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.group-body { padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 9px; border-top: 1px solid var(--border); }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label, .field .flabel { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+.field label b, .field .flabel b { color: var(--text); font-weight: 600; }
+.field input[type=number], .field select { width: 100%; padding: 6px 8px; border-radius: 6px;
+  border: 1px solid var(--border2); background: var(--surface); color: var(--text); font-size: 12px;
+  font-family: inherit; }
+.field input[type=range] { width: 100%; accent-color: var(--accent); }
+.field .row { display: flex; gap: 6px; align-items: center; }
+.field .row > * { flex: 1; min-width: 0; }
+.field .unit { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
+.chk { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text); cursor: pointer; flex-wrap: wrap; }
+.chk input { flex: 0 0 auto; }
+.chk input { accent-color: var(--accent); cursor: pointer; width: 14px; height: 14px; }
+.chk small { color: var(--muted); font-size: 11px; }
+.hint { font-size: 10px; color: var(--faint); line-height: 1.45; }
+.mode-toggle { display: flex; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 7px; padding: 2px; gap: 2px; }
+.mode-btn { flex: 1; padding: 5px 6px; border-radius: 5px; border: none; font-family: inherit;
+  background: transparent; color: var(--muted); font-size: 11px; font-weight: 600;
+  cursor: pointer; transition: all .15s; }
+.mode-btn.active { background: var(--accent); color: #fff; }
+.mode-btn[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.sidebar-help { font-size: 10px; color: var(--faint); padding: 0 4px; line-height: 1.5; }
+
+/* ── Main ───────────────────────────────────────────────────── */
+.main { padding: 18px 22px 40px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; }
+.panel h2 { font-size: 13px; font-weight: 700; color: var(--text); letter-spacing: -.01em; }
+.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.panel-head p { font-size: 11px; color: var(--muted); }
+.chart-wrap { position: relative; }
+.chart-main { height: 340px; }
+.chart-sm { height: 300px; }
+.empty-state { display: flex; align-items: center; justify-content: center; height: 100%;
+  color: var(--muted); font-size: 12px; text-align: center; padding: 20px; }
+
+.hero { display: grid; grid-template-columns: auto 1fr; gap: 24px; align-items: center; }
+.hero-num { font-size: 56px; font-weight: 800; color: var(--strong); letter-spacing: -.03em; line-height: 1; }
+.hero-num small { font-size: 16px; font-weight: 600; color: var(--muted); letter-spacing: 0; margin-left: 6px; }
+.hero-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 4px; }
+.hero-side { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); }
+.hero-side b { color: var(--text); font-weight: 600; }
+.delta-pos { color: var(--accent-light); font-weight: 700; }
+.delta-neg { color: var(--red); font-weight: 700; }
+.delta-zero { color: var(--muted); font-weight: 700; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.tile { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+.tile-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
+.tile-value { font-size: 24px; font-weight: 800; color: var(--strong); letter-spacing: -.02em; line-height: 1.2; margin-top: 2px; }
+.tile-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.tile-sub b { color: var(--text); font-weight: 600; }
+
+.two-col { display: grid; grid-template-columns: 3fr 2fr; gap: 16px; align-items: start; }
+/* Grid items default to min-width:auto, which lets a wide table inside a
+   .table-scroll push the whole column out past the viewport on phones. */
+.two-col > *, .method-section { min-width: 0; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--muted); margin-top: 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { display: inline-block; width: 18px; height: 0; border-top: 2px solid; }
+.legend i.dash { border-top-style: dashed; }
+.legend i.sw { width: 10px; height: 10px; border: none; border-radius: 2px; }
+
+table.data { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.data th { text-align: left; font-size: 10px; font-weight: 700; color: var(--faint);
+  text-transform: uppercase; letter-spacing: .07em; padding: 5px 8px; border-bottom: 1px solid var(--border); }
+table.data td { padding: 6px 8px; color: var(--muted); border-bottom: 1px solid var(--line-faint);
+  font-variant-numeric: tabular-nums; vertical-align: top; }
+table.data td:first-child { color: var(--text); font-weight: 500; }
+table.data td.num, table.data th.num { text-align: right; }
+table.data td.pos { color: var(--accent-light); font-weight: 600; }
+table.data td.neg { color: var(--red); font-weight: 600; }
+details.tbl { margin-top: 10px; }
+details.tbl summary { font-size: 11px; color: var(--muted); cursor: pointer; user-select: none; }
+details.tbl summary:hover { color: var(--text); }
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 8px; }
+
+/* What-if */
+.whatif-list { display: flex; flex-direction: column; gap: 6px; }
+.whatif-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--card); }
+.whatif-item label { flex: 1; font-size: 12px; color: var(--text); cursor: pointer; display: flex; gap: 8px; align-items: center; }
+.whatif-item input { accent-color: var(--chart-improved); width: 14px; height: 14px; cursor: pointer; }
+.whatif-item .gain { font-size: 12px; font-weight: 700; color: var(--accent-light); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.whatif-item .gain.zero { color: var(--muted); font-weight: 500; }
+.whatif-total { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+.whatif-total b { color: var(--text); }
+.whatif-total .big { font-size: 20px; font-weight: 800; color: var(--strong); margin-left: 6px; }
+.note-box { background: rgba(93,106,240,.07); border: 1px solid rgba(93,106,240,.22);
+  border-radius: 7px; padding: 9px 12px; font-size: 11px; color: var(--muted); line-height: 1.6; }
+.note-box b { color: var(--text); }
+.warn-box { background: rgba(245,158,11,.07); border: 1px solid rgba(245,158,11,.22);
+  border-radius: 7px; padding: 9px 12px; font-size: 11px; color: var(--muted); line-height: 1.6; }
+.warn-box b { color: var(--amber); }
+
+/* Methodology */
+.method-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px 24px; }
+.method-panel h2 { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 18px;
+  letter-spacing: -.01em; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.method-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.method-section h3 { font-size: 11px; font-weight: 700; color: var(--accent-light);
+  text-transform: uppercase; letter-spacing: .09em; margin-bottom: 9px; }
+.method-section p, .method-section li { font-size: 12px; color: var(--muted); line-height: 1.75; }
+.method-section p + p { margin-top: 8px; }
+.method-section ul, .method-section ol { padding-left: 16px; display: flex; flex-direction: column; gap: 5px; }
+.method-section li strong, .method-section p strong { color: var(--text); }
+.method-section code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+  background: var(--card2); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+.method-section a { color: var(--accent-light); text-decoration: none; }
+.method-section a:hover { text-decoration: underline; }
+.method-full { grid-column: 1 / -1; }
+.hr-table td:nth-child(2) { color: var(--text); }
+.hr-table td.src { white-space: nowrap; }
+.calib { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.calib-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+.calib-card .cname { font-size: 11px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+.calib-card .cval { font-size: 18px; font-weight: 800; color: var(--strong); }
+.calib-card .cref { font-size: 10px; color: var(--muted); line-height: 1.5; }
+.calib-card .ok { color: var(--green); font-weight: 700; }
+.calib-card .bad { color: var(--red); font-weight: 700; }
+footer { text-align: center; font-size: 11px; color: var(--faint); padding: 10px 20px 26px; line-height: 1.6; }
+
+:focus-visible { outline: 2px solid var(--accent-light); outline-offset: 2px; border-radius: 6px; }
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+@media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } .method-grid { grid-template-columns: 1fr; } }
+@media (max-width: 768px) {
+  body { overflow-x: hidden; }
+  header { padding: 10px 14px; }
+  .header-stats { display: none; }
+  .layout { grid-template-columns: 1fr; min-height: auto; }
+  .sidebar { border-right: none; border-bottom: 1px solid var(--border); padding: 10px 12px; }
+  .main { padding: 14px 12px 30px; }
+  .panel, .method-panel { padding: 14px; }
+  .hero { grid-template-columns: 1fr; gap: 10px; }
+  .hero-num { font-size: 44px; }
+  .chart-main { height: 280px; }
+  .chart-sm { height: 260px; }
+}
+@media print {
+  :root { color-scheme: light; }
+  header { position: static; }
+  .sidebar, .btn, .sidebar-help { display: none !important; }
+  .layout { display: block; }
+  .main { padding: 0; }
+  .panel, .method-panel, .tile { break-inside: avoid; border-color: #ccc; }
+  a[href]::after { content: none; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-brand">
+    <h1><em>Life Expectancy</em> Dashboard</h1>
+    <p>National life table × 35 published hazard ratios · 17 countries · every number cited</p>
+  </div>
+  <div class="header-right">
+    <div class="header-stats">
+      <div class="hstat">
+        <div class="hstat-label">Life expectancy</div>
+        <div class="hstat-value dyn" id="hsLE" aria-live="polite">—</div>
+      </div>
+      <div class="hstat">
+        <div class="hstat-label">vs national average</div>
+        <div class="hstat-value" id="hsDelta">—</div>
+      </div>
+      <div class="hstat">
+        <div class="hstat-label">Median age at death</div>
+        <div class="hstat-value" id="hsMedian">—</div>
+      </div>
+      <div class="hstat">
+        <div class="hstat-label">Reach 90</div>
+        <div class="hstat-value" id="hsP90">—</div>
+      </div>
+    </div>
+    <button class="btn" id="copyBtn" onclick="copyLink()" title="Copy a link that restores every input on this page">Copy link</button>
+    <button class="btn" id="themeBtn" onclick="toggleTheme()" title="Switch between dark and light mode"></button>
+  </div>
+</header>
+
+<div class="layout">
+  <!-- ═══════════ Sidebar ═══════════ -->
+  <aside class="sidebar" aria-label="Your details">
+    <div class="sidebar-label">Your details</div>
+
+    <details class="group" open>
+      <summary>Demographics <span class="gsum" id="gsumDemo"></span></summary>
+      <div class="group-body">
+        <div class="field">
+          <label for="inCountry">Country <span class="hint">baseline life table</span></label>
+          <select id="inCountry" data-key="country"></select>
+        </div>
+        <div class="field">
+          <span class="flabel" id="lblSex">Sex <span class="hint">as in the life table</span></span>
+          <div class="mode-toggle" role="group" aria-labelledby="lblSex">
+            <button type="button" class="mode-btn" data-key="sex" data-val="M" aria-pressed="true">Male</button>
+            <button type="button" class="mode-btn" data-key="sex" data-val="F" aria-pressed="false">Female</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="inAge">Current age <b id="ageOut">40</b></label>
+          <input type="range" id="inAge" data-key="age" min="18" max="100" step="1" value="40">
+        </div>
+      </div>
+    </details>
+
+    <details class="group" open>
+      <summary>Body &amp; vitals <span class="gsum" id="gsumBody"></span></summary>
+      <div class="group-body">
+        <div class="field">
+          <span class="flabel" id="lblUnits">Units</span>
+          <div class="mode-toggle" role="group" aria-labelledby="lblUnits">
+            <button type="button" class="mode-btn" data-key="units" data-val="metric" aria-pressed="true">cm / kg</button>
+            <button type="button" class="mode-btn" data-key="units" data-val="imperial" aria-pressed="false">ft / lb</button>
+          </div>
+        </div>
+        <div class="field" id="fHeightM">
+          <label for="inHeight">Height</label>
+          <div class="row"><input type="number" id="inHeight" data-key="height" min="120" max="230" step="1" value="175"><span class="unit">cm</span></div>
+        </div>
+        <div class="field" id="fHeightI" hidden>
+          <label for="inFeet">Height</label>
+          <div class="row">
+            <input type="number" id="inFeet" data-key="feet" min="3" max="7" step="1" value="5"><span class="unit">ft</span>
+            <input type="number" id="inInches" data-key="inches" min="0" max="11" step="1" value="9"><span class="unit">in</span>
+          </div>
+        </div>
+        <div class="field">
+          <label for="inWeight">Weight <b id="bmiOut"></b></label>
+          <div class="row"><input type="number" id="inWeight" data-key="weight" min="30" max="300" step="0.5" value="80"><span class="unit" id="weightUnit">kg</span></div>
+        </div>
+        <div class="field">
+          <label for="inSbp">Systolic blood pressure <span class="hint">your usual reading</span></label>
+          <div class="row"><input type="number" id="inSbp" data-key="sbp" min="90" max="220" step="1" value="120"><span class="unit">mmHg</span></div>
+        </div>
+        <div class="field">
+          <label for="inWaist">Waist circumference <span class="hint">optional</span></label>
+          <div class="row"><input type="number" id="inWaist" data-key="waist" min="20" max="200" step="1" placeholder="not entered"><span class="unit" id="waistUnit">cm</span></div>
+        </div>
+        <div class="field">
+          <label for="inRhr">Resting heart rate <span class="hint">optional</span></label>
+          <div class="row"><input type="number" id="inRhr" data-key="rhr" min="35" max="140" step="1" placeholder="not entered"><span class="unit">bpm</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="group">
+      <summary>Fitness &amp; measurements <span class="gsum" id="gsumFit"></span></summary>
+      <div class="group-body">
+        <div class="hint">All optional. Blank means "population average for your age and sex" — entering a value only moves the estimate by how far you are from the norm.</div>
+        <div class="field">
+          <label for="inVo2">VO₂max <span class="hint">from a watch or test</span></label>
+          <div class="row"><input type="number" id="inVo2" data-key="vo2max" min="10" max="90" step="1" placeholder="not entered"><span class="unit">ml/kg/min</span></div>
+          <div class="hint">One of the strongest predictors there is. When entered, the exercise answer counts at half weight.</div>
+        </div>
+        <div class="field">
+          <label for="inGrip">Grip strength <span class="hint">dynamometer</span></label>
+          <div class="row"><input type="number" id="inGrip" data-key="grip" min="5" max="90" step="1" placeholder="not entered"><span class="unit">kg</span></div>
+        </div>
+        <div class="field">
+          <label for="inStrength">Strength training</label>
+          <select id="inStrength" data-key="strength">
+            <option value="unk">Not entered</option>
+            <option value="none">None</option>
+            <option value="1to2">1 – 2 sessions a week</option>
+            <option value="3plus">3 or more a week</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="inSitting">Sitting time <span class="hint">hours/day, work + leisure</span></label>
+          <div class="row"><input type="number" id="inSitting" data-key="sitting" min="0" max="18" step="0.5" placeholder="not entered"><span class="unit">h</span></div>
+        </div>
+        <div class="field">
+          <label for="inCrp">hs-CRP <span class="hint">blood test, if you have it</span></label>
+          <div class="row"><input type="number" id="inCrp" data-key="crp" min="0.1" max="50" step="0.1" placeholder="not entered"><span class="unit">mg/L</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="group" open>
+      <summary>Lifestyle <span class="gsum" id="gsumLife"></span></summary>
+      <div class="group-body">
+        <div class="field">
+          <label for="inSmoke">Smoking</label>
+          <select id="inSmoke" data-key="smoke">
+            <option value="never">Never smoked</option>
+            <option value="former">Former smoker</option>
+            <option value="current">Current smoker</option>
+            <option value="cigar">Cigar or pipe only</option>
+          </select>
+        </div>
+        <div class="field" id="fCigs" hidden>
+          <label for="inCigs">Cigarettes per day <span class="hint">now, or before quitting</span></label>
+          <select id="inCigs" data-key="cigs">
+            <option value="lt10">Fewer than 10</option>
+            <option value="10to19">10 – 19</option>
+            <option value="ge20">20 or more</option>
+          </select>
+        </div>
+        <div class="field" id="fQuit" hidden>
+          <label for="inQuit">Years since quitting</label>
+          <input type="number" id="inQuit" data-key="quitYears" min="0" max="80" step="1" value="5">
+        </div>
+        <div class="field">
+          <label for="inActivity">Exercise <span class="hint">moderate-intensity min/week</span></label>
+          <div class="row"><input type="number" id="inActivity" data-key="activity" min="0" max="2000" step="10" value="150"><span class="unit">min</span></div>
+          <div class="hint">Count vigorous minutes double. 150 is the WHO/CDC minimum.</div>
+        </div>
+        <div class="field">
+          <label for="inAlcohol">Alcohol <span class="hint">standard drinks/week</span></label>
+          <div class="row"><input type="number" id="inAlcohol" data-key="alcohol" min="0" max="80" step="1" value="3"><span class="unit">/wk</span></div>
+          <div class="hint">1 drink ≈ 14 g alcohol: a 350 ml beer, 150 ml wine or 45 ml spirits.</div>
+        </div>
+        <div class="field">
+          <label for="inSleep">Sleep <span class="hint">usual hours/night</span></label>
+          <div class="row"><input type="number" id="inSleep" data-key="sleep" min="3" max="12" step="0.5" value="7"><span class="unit">h</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="group">
+      <summary>Diet <span class="gsum" id="gsumDiet"></span></summary>
+      <div class="group-body">
+        <div class="field">
+          <label for="inFruitveg">Fruit &amp; vegetables <span class="hint">servings/day</span></label>
+          <div class="row"><input type="number" id="inFruitveg" data-key="fruitveg" min="0" max="12" step="1" value="3"><span class="unit">/day</span></div>
+        </div>
+        <div class="field">
+          <label for="inNuts">Nuts</label>
+          <select id="inNuts" data-key="nuts">
+            <option value="unk">Not entered</option>
+            <option value="rare">Rarely</option>
+            <option value="weekly">A few times a week</option>
+            <option value="daily">A handful most days</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="inGrains">Whole grains <span class="hint">bread, oats, brown rice</span></label>
+          <select id="inGrains" data-key="grains">
+            <option value="unk">Not entered</option>
+            <option value="rare">Rarely — mostly refined</option>
+            <option value="some">Some days</option>
+            <option value="daily">Most meals</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="inMeat">Processed meat <span class="hint">bacon, ham, sausages, deli</span></label>
+          <select id="inMeat" data-key="meat">
+            <option value="unk">Not entered</option>
+            <option value="rare">Rarely</option>
+            <option value="weekly">A few times a week</option>
+            <option value="daily">Most days</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="inSugary">Sugary drinks <span class="hint">soda, sweetened juice</span></label>
+          <select id="inSugary" data-key="sugary">
+            <option value="unk">Not entered</option>
+            <option value="rare">Rarely</option>
+            <option value="weekly">A few a week</option>
+            <option value="daily">About one a day</option>
+            <option value="twice">Two or more a day</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="inCoffee">Coffee</label>
+          <select id="inCoffee" data-key="coffee">
+            <option value="unk">Not entered</option>
+            <option value="none">None</option>
+            <option value="1to2">1 – 2 cups a day</option>
+            <option value="3to4">3 – 4 cups a day</option>
+            <option value="5plus">5 or more</option>
+          </select>
+        </div>
+        <div class="hint">The five diet items are capped together at ±35% so they can't stack past what whole-diet studies find.</div>
+      </div>
+    </details>
+
+    <details class="group">
+      <summary>Health conditions <span class="gsum" id="gsumClin"></span></summary>
+      <div class="group-body">
+        <div class="field">
+          <label for="inDiabetes">Diabetes</label>
+          <select id="inDiabetes" data-key="diabetes">
+            <option value="none">None</option>
+            <option value="pre">Prediabetes</option>
+            <option value="yes">Diabetes (type 1 or 2)</option>
+          </select>
+        </div>
+        <label class="chk"><input type="checkbox" data-key="cvd"> Heart attack or stroke <small>(history of)</small></label>
+        <label class="chk"><input type="checkbox" data-key="af"> Atrial fibrillation</label>
+        <div class="field">
+          <label for="inMental">Mental health</label>
+          <select id="inMental" data-key="mental">
+            <option value="none">No diagnosis</option>
+            <option value="depression">Depression (diagnosed / persistent)</option>
+            <option value="smi">Bipolar disorder or schizophrenia</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="inOsa">Sleep apnoea</label>
+          <select id="inOsa" data-key="osa">
+            <option value="none">None / not diagnosed</option>
+            <option value="moderate">Mild or moderate</option>
+            <option value="severe">Severe</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="inDrugs">Opioid or stimulant dependence</label>
+          <select id="inDrugs" data-key="drugs">
+            <option value="none">No</option>
+            <option value="current">Current</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="inSrh">How would you rate your health? <span class="hint">overall</span></label>
+          <select id="inSrh" data-key="srh">
+            <option value="unk">Not entered</option>
+            <option value="excellent">Excellent</option>
+            <option value="verygood">Very good</option>
+            <option value="good">Good</option>
+            <option value="fair">Fair</option>
+            <option value="poor">Poor</option>
+          </select>
+          <div class="hint">A single self-rating predicts mortality even after the diagnoses above are accounted for.</div>
+        </div>
+        <div class="field">
+          <label for="inCopd">COPD / emphysema</label>
+          <select id="inCopd" data-key="copd">
+            <option value="none">None</option>
+            <option value="moderate">Mild or moderate</option>
+            <option value="severe">Severe</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="inCkd">Chronic kidney disease</label>
+          <select id="inCkd" data-key="ckd">
+            <option value="none">None (eGFR ≥ 60)</option>
+            <option value="stage3">Stage 3 (eGFR 30 – 59)</option>
+            <option value="stage45">Stage 4 – 5 (eGFR &lt; 30)</option>
+          </select>
+        </div>
+      </div>
+    </details>
+
+    <details class="group">
+      <summary>Social &amp; family <span class="gsum" id="gsumSocial"></span></summary>
+      <div class="group-body">
+        <div class="field">
+          <label for="inEducation">Education <span class="hint">years of schooling</span></label>
+          <div class="row"><input type="number" id="inEducation" data-key="education" min="0" max="24" step="1" value="14"><span class="unit">yrs</span></div>
+          <div class="hint">High school ≈ 12, bachelor's ≈ 16, master's ≈ 18.</div>
+        </div>
+        <div class="field">
+          <label for="inIncome">Household income <span class="hint">vs national median</span></label>
+          <select id="inIncome" data-key="income">
+            <option value="unk">Not entered</option>
+            <option value="low">Below half the median</option>
+            <option value="middle">Around the median</option>
+            <option value="high">Well above the median</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="inWork">Employment</label>
+          <select id="inWork" data-key="work">
+            <option value="working">Working (employed or self-employed)</option>
+            <option value="notworking">Retired, studying or home-making</option>
+            <option value="unemployed">Unemployed, looking for work</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="inSocial">Social connection</label>
+          <select id="inSocial" data-key="social">
+            <option value="strong">Strong — regular contact with friends/family</option>
+            <option value="moderate">Moderate — some contact, sometimes lonely</option>
+            <option value="isolated">Isolated — little contact, often lonely</option>
+          </select>
+        </div>
+        <label class="chk"><input type="checkbox" data-key="partnered" checked> Married or living with a partner</label>
+        <div class="field">
+          <label for="inMother">Mother <span class="hint">living, or age reached</span></label>
+          <select id="inMother" data-key="mother">
+            <option value="unk">Unknown</option>
+            <optgroup label="Still living — her age now">
+              <option value="a_lt60">Under 60</option>
+              <option value="a_60s">60s</option>
+              <option value="a_70s">70s</option>
+              <option value="a_80s">80s</option>
+              <option value="a_90s">90s</option>
+              <option value="a_100">100+</option>
+            </optgroup>
+            <optgroup label="Passed away — age reached">
+              <option value="d_lt70">Under 70</option>
+              <option value="d_70s">70s</option>
+              <option value="d_80s">80s</option>
+              <option value="d_90s">90s</option>
+              <option value="d_100">100+</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="field">
+          <label for="inFather">Father <span class="hint">living, or age reached</span></label>
+          <select id="inFather" data-key="father">
+            <option value="unk">Unknown</option>
+            <optgroup label="Still living — his age now">
+              <option value="a_lt60">Under 60</option>
+              <option value="a_60s">60s</option>
+              <option value="a_70s">70s</option>
+              <option value="a_80s">80s</option>
+              <option value="a_90s">90s</option>
+              <option value="a_100">100+</option>
+            </optgroup>
+            <optgroup label="Passed away — age reached">
+              <option value="d_lt70">Under 70</option>
+              <option value="d_70s">70s</option>
+              <option value="d_80s">80s</option>
+              <option value="d_90s">90s</option>
+              <option value="d_100">100+</option>
+            </optgroup>
+          </select>
+          <div class="hint">A living parent counts for the ages they can still reach, from the life table — alive at 75 is credited like reaching the mid-80s. Grandparents aren't modelled: there is no well-measured independent effect to cite.</div>
+        </div>
+      </div>
+    </details>
+
+    <details class="group">
+      <summary>Environment</summary>
+      <div class="group-body">
+        <div class="field">
+          <label for="inPm25">Air pollution at home <span class="hint">annual PM2.5, optional</span></label>
+          <div class="row"><input type="number" id="inPm25" data-key="pm25" min="0" max="150" step="1" placeholder="country average"><span class="unit">µg/m³</span></div>
+          <div class="hint">Look up your city's annual average (IQAir, EPA, DEFRA). Blank uses your country's average.</div>
+        </div>
+      </div>
+    </details>
+
+    <details class="group" open>
+      <summary>Projection</summary>
+      <div class="group-body">
+        <label class="chk"><input type="checkbox" data-key="improve"> <span>Mortality keeps improving <small>(UN projection)</small></span></label>
+        <div class="hint">Off: today's death rates apply for the rest of your life (the standard "period" figure quoted in the news). On: each future year's death rates fall at the pace the UN projects for your country — the "cohort" figure.</div>
+      </div>
+    </details>
+
+    <div class="btn-row">
+      <button class="btn btn-full" onclick="resetAll()">Reset</button>
+      <button class="btn btn-full" onclick="exportCsv()" title="Download the survival table as CSV">CSV</button>
+      <button class="btn btn-full" onclick="exportPng()" title="Download the survival chart as an image">PNG</button>
+    </div>
+    <div class="sidebar-help">Estimates update as you type. Nothing you enter leaves this page.</div>
+  </aside>
+
+  <!-- ═══════════ Main ═══════════ -->
+  <main class="main">
+
+    <section class="panel">
+      <div class="hero">
+        <div>
+          <div class="hero-label">Your estimated life expectancy</div>
+          <div class="hero-num" aria-live="polite"><span id="heroLE">—</span><small>years old</small></div>
+        </div>
+        <div class="hero-side" id="heroSide"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Survival curve</h2>
+        <p>Probability of still being alive at each age, from today</p>
+      </div>
+      <div class="chart-wrap chart-main">
+        <canvas id="chSurv" role="img" aria-label="Survival curve: probability of being alive at each age for you, the national average and the what-if scenario. The same figures are in the table below the chart."></canvas>
+      </div>
+      <div class="legend" id="legSurv"></div>
+      <details class="tbl">
+        <summary>Table view</summary>
+        <div class="table-scroll"><table class="data" id="tblSurv"></table></div>
+      </details>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Milestones</h2>
+        <p>Chance of reaching each age, with the national average for someone your age and sex</p>
+      </div>
+      <div class="tiles" id="tiles"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>What each factor is worth</h2>
+        <p>Years of life expectancy gained or lost versus the national average, one factor at a time</p>
+      </div>
+      <div class="two-col">
+        <div>
+          <div class="chart-wrap chart-sm">
+            <canvas id="chTornado" role="img" aria-label="Bar chart of years gained or lost per risk factor. The same figures are in the adjacent table."></canvas>
+          </div>
+          <div class="legend"><span><i class="sw" style="background:var(--chart-gain)"></i>Years gained</span><span><i class="sw" style="background:var(--chart-loss)"></i>Years lost</span><span><i class="sw" style="background:var(--chart-avg)"></i>Interaction between factors</span></div>
+        </div>
+        <div class="table-scroll"><table class="data" id="tblTornado"></table></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>What if you changed something?</h2>
+        <p>Tick a change to overlay the scenario on the survival curve. Each line shows the gain from that change alone; the total applies them together.</p>
+      </div>
+      <div class="two-col">
+        <div class="whatif-list" id="whatifList"></div>
+        <div>
+          <div class="whatif-total" id="whatifTotal"></div>
+          <div class="note-box" style="margin-top:12px" id="whatifNote"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>When, not just how long</h2>
+        <p>Distribution of your age at death — the survival curve's slope</p>
+      </div>
+      <div class="two-col">
+        <div class="chart-wrap chart-sm">
+          <canvas id="chDist" role="img" aria-label="Distribution of age at death with the 10th, 50th and 90th percentiles marked. The percentiles are listed beside the chart."></canvas>
+        </div>
+        <div>
+          <div class="tiles" id="pctTiles" style="grid-template-columns: 1fr 1fr"></div>
+          <details class="tbl">
+            <summary>Table view</summary>
+            <div class="table-scroll"><table class="data" id="tblDist"></table></div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- Methodology, Data Sources & Limitations -->
+    <div class="method-panel" id="method">
+      <h2>⚠ Methodology, Data Sources &amp; Limitations</h2>
+      <div class="method-grid">
+        <div class="method-section">
+          <h3>How the estimate is built</h3>
+          <ol>
+            <li><strong>Start from your country's life table.</strong> The United Nations' <em>World Population Prospects 2024</em> gives, for every single year of age and each sex, the probability of dying before the next birthday (q<sub>x</sub>). The 2024 table is used — the first year of the UN's smooth mortality model rather than the 2023 raw estimate, because the estimates carry artifacts for some countries (Australia's male death rates at ages 21–38 are recorded fifty times too low) and single-year noise for small ones; the two agree on life expectancy at birth to within 0.2 years. Seventeen countries are embedded; the same source and method for all of them, so countries are comparable.</li>
+            <li><strong>Turn each risk factor into a hazard multiplier.</strong> Every factor below comes from a large cohort study or meta-analysis that reports a hazard ratio (HR) — how many times higher the death rate is in one group than in a reference group. The multipliers are combined by multiplication (a proportional-hazards model).</li>
+            <li><strong>Re-anchor to the population average.</strong> A published HR compares you with the study's <em>reference group</em> (never-smokers, BMI 22.5–25…), but a national life table describes the <em>average</em> person, who is a mix of all groups. Applying raw HRs would make almost everyone look worse than average. So for each factor the multiplier actually applied is <code>HR<sub>you</sub> ÷ Σ(prevalence × HR)</code> — your ratio to the population-weighted mean. Consequences: a person of exactly average risk reproduces the national table, and a never-smoker correctly lands <em>above</em> the national average. Smoking and BMI use each country's own prevalence (WHO); the other factors use one reference distribution, listed in the table.</li>
+            <li><strong>Let risk factors fade with age — but not diseases.</strong> Every source that reports age strata finds relative risks shrinking at older ages (the BMI collaboration's HR per 5 kg/m² is 1.52 at 35–49 but 1.21 at 70–89; blood-pressure effects are "about half as extreme" at 80–89 as at 40–49; each year of education cuts mortality 2.9% before 50 but 0.8% after 70). The log-HR of each lifestyle, body and social factor is therefore scaled by 1.0 up to age 60, falling linearly to 0.5 twenty-five years later and to 0.25 fifteen years after that. Smoking holds its full strength until 75 (Thun et al. still find ≥ 3× at 55–74). Diagnosed diabetes, heart disease, COPD and kidney disease do not fade: the sources' own life-expectancy figures imply a sustained hazard ratio.</li>
+            <li><strong>Assume your future looks like the population's, not frozen at today.</strong> A 40-year-old without diabetes is not a 40-year-old who will <em>never</em> have diabetes. For each condition you don't have, the chance of developing it by each future age at the population rate is priced into your hazard; blood pressure is assumed to drift upward with age at the median rate (about +17 mmHg from 30 to 70). Without this, a healthy young person is credited with a lifetime free of disease and the estimate runs several years too high.</li>
+            <li><strong>Recompute survival.</strong> The adjusted death rate at each future age gives the survival curve; life expectancy is its area (plus half a year for deaths spread through the final year); the median, the milestone probabilities and the age-at-death distribution all read straight off it. Ages 100–110 are extrapolated by fitting a Gompertz line to ages 85–99; everyone is assumed dead by 111. The combined multiplier is capped at 12×: the proportional-hazards assumption has been tested to about 8× (three cardiometabolic diseases together) and nothing supports stacking further. A profile that hits the cap is told so.</li>
+          </ol>
+        </div>
+        <div class="method-section">
+          <h3>Reading the numbers</h3>
+          <p><strong>Life expectancy</strong> is the <em>mean</em> age at death of people exactly like you; the <strong>median</strong> is the age half of them will have died by. They differ because the distribution is skewed — a small chance of dying young pulls the mean below the median.</p>
+          <p><strong>"vs national average"</strong> compares you with a person of your age and sex in your country whose every factor is at the population average. The per-factor bars are computed by resetting one factor at a time to that average, holding the others as you entered them. Because the factors multiply, the bars do not add up exactly; the grey <em>interaction</em> bar is the difference, so the chart always reconciles to the headline figure. A fully low-risk profile lands 8–10 years above the average; that matches Li et al. (Circulation 2018), whose men with all five low-risk habits had a life expectancy of 87.6 at age 50 against a US average of about 79.</p>
+          <p><strong>Parents.</strong> The evidence is about the age a parent <em>reached</em>, so a parent who is still living is credited with the ages they may still reach: the life table gives the chance of ending up in each band from their current age, and the expected hazard ratio is used. A mother alive at 75 will on average reach her mid-80s, so she counts as a mild advantage, not as "70s". "Unknown" means the population average and neither helps nor hurts. Grandparents are not modelled — family longevity clusters, but there is no well-measured effect independent of the parents to cite.</p>
+          <p><strong>Mortality improvement.</strong> Death rates have fallen for a century. Off, the estimate assumes 2024's rates hold for the rest of your life — the "period" life expectancy quoted in the news, which understates how long today's adults will actually live. On, each future year's rate falls at the average annual pace the UN projects for your country, sex and age band over 2024–2073. It is a projection, not a promise.</p>
+          <p><strong>What-if scenarios</strong> re-run the model with a change applied. Quitting smoking is modelled as it actually happens: the excess risk decays with a 7-year time constant to a 5% residual, so the benefit accrues over the years after quitting rather than arriving overnight (about 76% of the excess is gone after a decade, consistent with the 61–81% Jha et al. found for quitting in one's 40s).</p>
+          <h3 style="margin-top:16px">Calibration checks</h3>
+          <p>The pipeline is checked against published life-expectancy differences that the source studies report directly. These are computed live from this page's own engine:</p>
+          <div class="calib" id="calib" style="margin-top:8px"></div>
+        </div>
+        <div class="method-section method-full">
+          <h3>How much can 35 variables predict? — and the rules that keep them honest</h3>
+          <p><strong>The ceiling.</strong> For survival the relevant yardstick is not R² but <em>discrimination</em> — how well the model ranks who dies first (the C-statistic). Age and sex alone score about 0.75 for ten-year mortality; the best published multivariable tools (UK Biobank models, Canada's MPoRT) reach roughly 0.80–0.85; beyond that, individual mortality is genuinely unpredictable. The variables here were chosen for large, independent, well-replicated effects, which is what closes that gap. Adding correlated variables does not.</p>
+          <p><strong>Optional measurements are judged against your peers.</strong> VO₂max, grip strength, waist, resting heart rate and hs-CRP are compared with age- and sex-specific norms, so a blank field (= population average) is exactly neutral and a value moves the estimate only by how far you sit from the norm. Measured fitness is what self-reported exercise was standing in for, so when VO₂max is entered the exercise answer counts at half weight.</p>
+          <p><strong>Group caps.</strong> Correlated items are capped together so they cannot stack past what whole-pattern studies find: the five diet items at ±35% (diet-pattern studies find top-vs-bottom ≈ 0.75–0.8), education and income together at ±60%, the fitness group (exercise, VO₂max, grip, strength training, sitting, resting heart rate) at ±2.5× (Kodama's low-vs-high fitness alone is 1.70), and BMI + waist at ±3×.</p>
+          <p><strong>The favourable side is soft.</strong> Combined low-risk profiles have been studied to about <em>half</em> the average hazard (Li 2018's five habits; Loef & Walach's meta-analysis). Below that point each further halving of risk counts as half, with a hard floor at one-fifth of average; the adverse side keeps its 12× cap, which multimorbidity data support to 8×. When either applies, the per-factor bars are computed without it and scaled to the headline, so they keep their relative sizes and still add up.</p>
+          <p><strong>Deliberately left out, and why:</strong> total cholesterol (weak, U-shaped for all-cause mortality once treatment is common), height, vaping (no mortality data yet), active cancer (prognosis is disease-specific), religious attendance, optimism and "purpose in life" (large reported effects, but confounded and not causal), heart failure and dementia (a general calculator cannot represent their prognosis honestly), and grandparents (no measured effect independent of the parents).</p>
+        </div>
+        <div class="method-section method-full">
+          <h3>Risk factors, hazard ratios and sources</h3>
+          <div class="table-scroll"><table class="data hr-table" id="tblFactors"></table></div>
+          <p style="margin-top:10px">HRs are all-cause mortality unless noted. "Reference distribution" is the population mix used to re-anchor the factor to the national average (see step 3). The blood-pressure HR is derived, not quoted: Lewington et al. report a two-fold vascular death rate per 20 mmHg of usual systolic pressure above 115; with vascular causes ≈ 28% of deaths in these countries (WHO), the all-cause multiplier is <code>1 + 0.28 × (2<sup>Δ/20</sup> − 1)</code>. Alcohol HRs are back-solved from the life-expectancy losses at age 40 that Wood et al. report (≈ 6 months, 1–2 years, 4–5 years), so the engine reproduces the paper's own headline. The smoking split by intensity is interpolated between the light-smoker HR (Inoue-Choi) and the population-average current-smoker HR of 2.8 (Thun; Jha).</p>
+        </div>
+        <div class="method-section">
+          <h3>Baseline data</h3>
+          <ul>
+            <li><strong>Life tables:</strong> <a href="https://population.un.org/wpp/" target="_blank" rel="noopener">UN World Population Prospects 2024</a>, complete (single-age) life tables, Medium variant, 2024 table; improvement rates from the same source's 2024–2073 projection. Extracted by <code>tools/build_lifetables.py</code> in the repository, which also explains why the 2024 table was preferred over the 2023 estimate.</li>
+            <li><strong>Prevalence of smoking, obesity, overweight, underweight</strong> by country: <a href="https://www.who.int/data/gho" target="_blank" rel="noopener">WHO Global Health Observatory</a>, 2022, age-standardised, both sexes (indicators M_Est_smk_curr_std, NCD_BMI_30A, NCD_BMI_25A, NCD_BMI_18A).</li>
+            <li><strong>Everything else</strong> is in the table above, each with a link to the paper.</li>
+          </ul>
+        </div>
+        <div class="method-section">
+          <h3>Limitations — read these</h3>
+          <ul>
+            <li><strong>Not medical advice, not a prediction for you.</strong> It is the average outcome for a large group of people who share your answers. Individual outcomes vary enormously.</li>
+            <li><strong>Factors overlap.</strong> Multiplying HRs from different studies assumes they are independent. Diabetes, blood pressure, BMI and inactivity are correlated, and residual confounding compounds when twenty estimates from twenty cohorts are multiplied. The group caps and the soft floor above are the guard, not a cure.</li>
+            <li><strong>Self-rated health is a summary, not a cause.</strong> It earns its place because it predicts mortality after every diagnosis is accounted for, but changing the answer changes nothing in your body.</li>
+            <li><strong>Mostly Western cohorts.</strong> Most HRs come from North American and European studies and are applied unchanged to every country. Only the baseline table and the smoking/BMI prevalences are country-specific.</li>
+            <li><strong>Self-report.</strong> People under-report weight, drinking and smoking and over-report exercise. The estimate is only as honest as the inputs.</li>
+            <li><strong>Lifestyle prevalence is not age-specific.</strong> Disease prevalence and blood pressure are age-dependent, but the smoking, weight, activity and social distributions are adult averages; among 85-year-olds there are fewer smokers (they have died or quit), so the re-anchoring is approximate at old ages.</li>
+            <li><strong>Your habits are assumed to persist.</strong> Diseases you don't have are priced in at the population's onset rate, but the model does not have you start or stop smoking, gain weight or lose your social ties later in life — only the what-if panel changes those, and it changes them once, today.</li>
+            <li><strong>Treated conditions.</strong> Enter your blood pressure as it is <em>on</em> treatment; the residual risk of treated hypertension is not separately modelled. Active cancer is not modelled at all — its prognosis is disease-specific.</li>
+            <li><strong>Life tables lag.</strong> The baseline is 2024; with the improvement toggle off, no progress after that is assumed.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+<footer>Educational illustration, not medical advice. Single-file, no server, no tracking · Source and verification harness on GitHub.</footer>
+
+<script>
+// LIFETABLES:BEGIN
+// Generated by tools/build_lifetables.py -- do not edit by hand.
+const LIFETABLES = {"source":"United Nations, World Population Prospects 2024, complete life tables, Medium variant: the 2024 table as the baseline, with improvement rates from the 2024-2073 projection.","url":"https://population.un.org/wpp/","baseYear":2024,"projWindow":[2024,2073],"bands":[[0,0],[1,14],[15,34],[35,54],[55,74],[75,89],[90,99]],"countries":{"USA":{"name":"United States","M":{"qx":[0.005435,0.000533,0.000207,0.000181,0.000152,0.000123,0.000111,0.000109,0.000106,0.000107,0.000114,0.000122,0.000138,0.000173,0.000234,0.000322,0.000448,0.000624,0.00082,0.000983,0.001112,0.001228,0.001311,0.001368,0.001427,0.001486,0.001547,0.001605,0.001655,0.001704,0.001738,0.001774,0.001831,0.001894,0.001955,0.002006,0.002062,0.002128,0.002197,0.002277,0.002351,0.00243,0.002522,0.002665,0.002865,0.003096,0.003336,0.00359,0.003883,0.004239,0.004648,0.005115,0.005583,0.006118,0.006738,0.007356,0.007971,0.008629,0.009303,0.010012,0.010737,0.011583,0.012427,0.013326,0.014192,0.014996,0.015901,0.016838,0.01794,0.019287,0.020847,0.022758,0.024698,0.026986,0.029553,0.032344,0.035342,0.038532,0.042127,0.046465,0.051351,0.056861,0.0628,0.069813,0.077937,0.087214,0.097903,0.110263,0.123753,0.138033,0.153581,0.171652,0.190711,0.210906,0.231115,0.251755,0.273537,0.29632,0.319492,0.342767],"mx100":0.49308,"e0":77.045,"r":[0.02434,0.02286,0.01217,0.0136,0.01619,0.01409,0.00405]},"F":{"qx":[0.004437,0.000423,0.000158,0.000136,0.000118,9.9e-05,9.2e-05,9e-05,8.6e-05,8.4e-05,8.5e-05,9.1e-05,0.000103,0.000123,0.000149,0.000176,0.00021,0.000264,0.000323,0.000367,0.000401,0.000437,0.000469,0.000498,0.000528,0.000562,0.000603,0.000647,0.000687,0.000731,0.000781,0.000835,0.000891,0.000937,0.000981,0.001029,0.001086,0.001147,0.001205,0.001271,0.001337,0.001415,0.001502,0.001613,0.001749,0.001899,0.002058,0.002228,0.002421,0.002647,0.002896,0.003176,0.003457,0.003762,0.004098,0.004462,0.004841,0.005223,0.005597,0.005996,0.006399,0.006868,0.007336,0.007868,0.00841,0.008951,0.009642,0.010424,0.011355,0.012453,0.013662,0.015116,0.016616,0.018359,0.020233,0.022244,0.024484,0.027024,0.029931,0.033331,0.037148,0.041588,0.046467,0.052259,0.059061,0.067003,0.076256,0.086912,0.098385,0.110612,0.124299,0.140025,0.155695,0.172643,0.191438,0.21172,0.23274,0.254568,0.277258,0.300476],"mx100":0.43822,"e0":81.982,"r":[0.02168,0.02038,0.01096,0.01222,0.01455,0.01271,0.00369]}},"GBR":{"name":"United Kingdom","M":{"qx":[0.004025,0.000331,0.000119,0.000101,9.2e-05,8.3e-05,7.8e-05,7.2e-05,6.3e-05,6e-05,7.2e-05,8.5e-05,9.6e-05,0.000106,0.000123,0.000158,0.000217,0.000297,0.000384,0.000444,0.000476,0.000495,0.000501,0.00051,0.000542,0.000577,0.000592,0.00061,0.000655,0.000708,0.000745,0.00079,0.00086,0.000908,0.000954,0.001037,0.001132,0.001198,0.001261,0.001361,0.001493,0.001637,0.001786,0.001938,0.002084,0.002234,0.002408,0.002603,0.002814,0.003038,0.003276,0.003513,0.003729,0.003976,0.004314,0.004757,0.005241,0.005704,0.006195,0.006796,0.007493,0.008247,0.009051,0.009931,0.010852,0.011801,0.012867,0.014024,0.015279,0.016657,0.018243,0.020099,0.022249,0.024834,0.027876,0.03116,0.034422,0.038127,0.042412,0.047379,0.052991,0.05922,0.066261,0.0746,0.083955,0.094016,0.104902,0.117323,0.131677,0.147849,0.165648,0.184732,0.204443,0.225185,0.246912,0.269321,0.291871,0.314986,0.338984,0.362767],"mx100":0.52248,"e0":79.541,"r":[0.02334,0.02298,0.01597,0.01506,0.01826,0.01458,0.00526]},"F":{"qx":[0.003226,0.000292,0.000104,8.4e-05,7.6e-05,6.9e-05,6.6e-05,6.2e-05,5.6e-05,5.3e-05,5.6e-05,5.8e-05,6.2e-05,7.8e-05,0.0001,0.000116,0.000132,0.000161,0.000192,0.000197,0.000194,0.000203,0.000208,0.000211,0.000221,0.000238,0.000258,0.000281,0.000304,0.000329,0.000357,0.000396,0.000444,0.000483,0.000521,0.00058,0.000646,0.000699,0.000748,0.00081,0.000882,0.000955,0.001033,0.001134,0.001264,0.001401,0.001521,0.001627,0.001739,0.001876,0.00206,0.002267,0.002453,0.002639,0.002856,0.00312,0.003414,0.003733,0.004078,0.004459,0.004895,0.005408,0.005939,0.006452,0.006978,0.007585,0.008277,0.009034,0.009903,0.010873,0.011973,0.013285,0.014849,0.016665,0.018618,0.020831,0.023413,0.026309,0.029516,0.033225,0.037522,0.04249,0.048197,0.05497,0.062702,0.071374,0.081026,0.092061,0.104206,0.117688,0.133067,0.149871,0.166992,0.185329,0.205464,0.227246,0.249893,0.273196,0.297022,0.321258],"mx100":0.46891,"e0":83.325,"r":[0.02152,0.02118,0.01481,0.014,0.01693,0.01359,0.00496]}},"CAN":{"name":"Canada","M":{"qx":[0.004379,0.000367,0.000143,0.000129,0.000109,8.4e-05,7e-05,6.6e-05,7e-05,7.6e-05,7.8e-05,8.5e-05,0.0001,0.000124,0.00016,0.000211,0.000286,0.000397,0.00052,0.000608,0.000654,0.000683,0.000723,0.000768,0.000806,0.000842,0.00088,0.000913,0.00093,0.000938,0.00095,0.000968,0.000994,0.001036,0.001076,0.001104,0.001122,0.001139,0.001172,0.001234,0.001317,0.001401,0.001458,0.001501,0.001628,0.001803,0.001948,0.00209,0.002281,0.002508,0.002748,0.003011,0.0033,0.003627,0.003964,0.004348,0.004771,0.005267,0.005802,0.006356,0.006969,0.007713,0.008428,0.009073,0.009825,0.010849,0.011803,0.012659,0.013741,0.015034,0.016446,0.018125,0.019985,0.022083,0.024149,0.026497,0.029456,0.032485,0.035781,0.040114,0.045158,0.050346,0.055933,0.0631,0.071476,0.080549,0.090448,0.102247,0.115101,0.129232,0.145324,0.163231,0.180968,0.199535,0.218737,0.239454,0.262006,0.285384,0.308336,0.331702],"mx100":0.48026,"e0":80.531,"r":[0.02081,0.02157,0.01503,0.016,0.01677,0.01374,0.00497]},"F":{"qx":[0.003621,0.000305,0.000104,8.9e-05,8.8e-05,8.2e-05,6.9e-05,5.9e-05,5.7e-05,5.6e-05,5.4e-05,6.4e-05,8.5e-05,0.000107,0.000127,0.000146,0.00017,0.00021,0.000252,0.000269,0.000273,0.000285,0.000308,0.000336,0.000361,0.000374,0.00037,0.000366,0.000379,0.000404,0.000433,0.000459,0.000475,0.000487,0.000504,0.000537,0.000573,0.00059,0.000608,0.000649,0.000703,0.000754,0.000814,0.000904,0.000986,0.001061,0.001145,0.001254,0.001396,0.001555,0.001714,0.001878,0.002047,0.002266,0.002527,0.002767,0.002988,0.003271,0.003597,0.003941,0.004293,0.004681,0.00506,0.005507,0.006001,0.006522,0.007119,0.007747,0.008538,0.009475,0.010506,0.011705,0.012897,0.01427,0.015706,0.017318,0.019244,0.021384,0.023716,0.026603,0.030032,0.033947,0.038282,0.043677,0.049685,0.055969,0.06304,0.072418,0.082641,0.093851,0.10698,0.12196,0.136566,0.152716,0.170818,0.190752,0.211412,0.233097,0.256151,0.279927],"mx100":0.41594,"e0":84.913,"r":[0.02124,0.02198,0.01556,0.01651,0.01732,0.01427,0.00524]}},"AUS":{"name":"Australia","M":{"qx":[0.002824,0.000279,0.000111,9.7e-05,7.7e-05,6e-05,5.5e-05,5.9e-05,6.5e-05,6.4e-05,5.5e-05,6.1e-05,8e-05,0.000102,0.000128,0.000165,0.000226,0.00033,0.000448,0.000495,0.000481,0.00047,0.000496,0.000531,0.000549,0.000549,0.000549,0.000556,0.000586,0.00062,0.000642,0.000664,0.000701,0.00074,0.000785,0.000857,0.000933,0.000974,0.001012,0.001083,0.001177,0.001263,0.001329,0.001427,0.001556,0.001684,0.001836,0.001984,0.00214,0.00229,0.002432,0.002604,0.002782,0.003054,0.003392,0.003701,0.003954,0.004297,0.004694,0.005136,0.005602,0.006098,0.006515,0.007043,0.00761,0.008131,0.008861,0.009582,0.010484,0.011525,0.01274,0.014264,0.015762,0.017569,0.019466,0.021666,0.024267,0.027432,0.0306,0.034732,0.039755,0.045793,0.051464,0.057691,0.065006,0.075433,0.086336,0.097201,0.110369,0.125547,0.142244,0.161322,0.180259,0.200909,0.222846,0.246123,0.269566,0.293966,0.319397,0.34489],"mx100":0.50284,"e0":82.278,"r":[0.01847,0.01884,0.01662,0.01574,0.01736,0.01364,0.00417]},"F":{"qx":[0.002426,0.000257,9.5e-05,7.4e-05,6.3e-05,5.3e-05,4.7e-05,4.5e-05,4.6e-05,4.2e-05,3.5e-05,4.1e-05,5.8e-05,7.9e-05,0.000101,0.000128,0.000156,0.000177,0.000192,0.000203,0.000203,0.000191,0.000191,0.000197,0.000199,0.000205,0.000227,0.000248,0.000249,0.000248,0.000271,0.000303,0.000327,0.00037,0.000422,0.00046,0.000488,0.000516,0.000555,0.000609,0.000669,0.000721,0.000779,0.000881,0.000968,0.001027,0.0011,0.001187,0.001301,0.001426,0.001545,0.001674,0.001804,0.001971,0.002156,0.002321,0.002464,0.002664,0.002891,0.00313,0.003396,0.003712,0.003975,0.004218,0.004479,0.004832,0.005428,0.006062,0.006689,0.007343,0.008154,0.00918,0.010214,0.01148,0.012941,0.014609,0.016419,0.018641,0.020987,0.023903,0.027407,0.031707,0.036288,0.041854,0.048283,0.056188,0.064746,0.074565,0.085796,0.098747,0.114351,0.132555,0.150393,0.169452,0.190483,0.213601,0.237698,0.263091,0.289661,0.316748],"mx100":0.47116,"e0":85.845,"r":[0.02247,0.02294,0.02005,0.0189,0.02087,0.01647,0.00509]}},"NZL":{"name":"New Zealand","M":{"qx":[0.003691,0.000626,0.000264,0.000147,0.000106,9e-05,8.1e-05,7.7e-05,7.5e-05,7.2e-05,7e-05,7.6e-05,9.6e-05,0.000133,0.00019,0.000266,0.000362,0.000471,0.000576,0.000654,0.000697,0.000728,0.000748,0.000762,0.000769,0.000764,0.000742,0.000723,0.000722,0.000736,0.00076,0.000795,0.000825,0.000854,0.000883,0.000909,0.000932,0.000958,0.000994,0.001065,0.001154,0.00126,0.00136,0.00148,0.001607,0.001736,0.001888,0.002058,0.00225,0.002466,0.002704,0.00297,0.003238,0.003561,0.00391,0.004275,0.004624,0.005028,0.00546,0.005943,0.006454,0.007021,0.007561,0.008205,0.008927,0.009699,0.0106,0.011494,0.012512,0.013716,0.015167,0.016961,0.01892,0.021216,0.023716,0.026492,0.029644,0.033401,0.037438,0.042162,0.047605,0.054046,0.060851,0.068914,0.078017,0.088845,0.100717,0.114095,0.128832,0.144519,0.161506,0.179899,0.199585,0.220682,0.243276,0.266727,0.290349,0.314144,0.338255,0.36239],"mx100":0.52301,"e0":80.598,"r":[0.02245,0.0225,0.01692,0.01727,0.01925,0.01384,0.00364]},"F":{"qx":[0.003599,0.000506,0.000197,0.000105,7.7e-05,7e-05,6.7e-05,6.4e-05,5.9e-05,5.3e-05,5.1e-05,6e-05,8.2e-05,0.000116,0.000159,0.0002,0.000233,0.000252,0.000262,0.000272,0.000281,0.000293,0.000302,0.000308,0.000311,0.000317,0.000325,0.000335,0.000341,0.00035,0.000368,0.000396,0.000426,0.000459,0.000493,0.000524,0.000556,0.000593,0.000629,0.000664,0.000706,0.000774,0.000861,0.000974,0.0011,0.00123,0.001366,0.0015,0.001631,0.001775,0.001949,0.002147,0.002338,0.002545,0.002754,0.002974,0.003183,0.003406,0.003634,0.003893,0.004191,0.004563,0.004963,0.005441,0.005964,0.006515,0.007206,0.00796,0.008797,0.009707,0.010692,0.011871,0.013245,0.014892,0.016693,0.018676,0.02092,0.023657,0.026769,0.030495,0.034839,0.039912,0.045339,0.051621,0.05874,0.067253,0.076907,0.088128,0.101015,0.115365,0.131317,0.148759,0.167392,0.187332,0.208822,0.231736,0.255866,0.280938,0.306614,0.332589],"mx100":0.48818,"e0":83.886,"r":[0.02193,0.02199,0.01647,0.01682,0.01878,0.01356,0.00361]}},"IRL":{"name":"Ireland","M":{"qx":[0.002874,0.000382,0.000145,7.7e-05,5.8e-05,5.2e-05,5e-05,4.8e-05,4.7e-05,4.7e-05,5.1e-05,5.7e-05,6.7e-05,8.5e-05,0.000113,0.000154,0.000207,0.000266,0.000331,0.000402,0.000473,0.000533,0.000576,0.000605,0.000635,0.000656,0.00066,0.000646,0.000631,0.000625,0.000632,0.000674,0.000705,0.000748,0.00078,0.000796,0.000818,0.000853,0.000889,0.000976,0.001053,0.001181,0.001254,0.00137,0.001481,0.001587,0.001745,0.001919,0.002094,0.002318,0.00248,0.002819,0.003014,0.003322,0.003621,0.003994,0.004339,0.004794,0.005194,0.005758,0.006161,0.007058,0.007628,0.008501,0.009336,0.010119,0.011402,0.012524,0.013623,0.015217,0.016593,0.019035,0.02069,0.023135,0.02573,0.028842,0.032558,0.037161,0.041318,0.046933,0.051241,0.059396,0.065019,0.072845,0.080257,0.091363,0.10241,0.116443,0.131209,0.147708,0.163986,0.186572,0.206113,0.228675,0.251837,0.275497,0.298875,0.322507,0.346624,0.370843],"mx100":0.53544,"e0":80.581,"r":[0.02326,0.02294,0.01779,0.01782,0.01953,0.01524,0.0048]},"F":{"qx":[0.00238,0.000319,0.000119,6.3e-05,4.7e-05,4.3e-05,4e-05,3.8e-05,3.5e-05,3.4e-05,3.4e-05,3.5e-05,3.8e-05,4.5e-05,5.5e-05,7.1e-05,9e-05,0.00011,0.000126,0.000136,0.000142,0.000146,0.000153,0.000163,0.000176,0.00019,0.000207,0.00022,0.000231,0.000244,0.000263,0.000297,0.000322,0.000353,0.000378,0.000393,0.000412,0.00044,0.000468,0.000526,0.000576,0.00066,0.000709,0.000789,0.000865,0.000935,0.001042,0.001159,0.001275,0.001423,0.001527,0.001768,0.001914,0.002148,0.002364,0.002616,0.002825,0.003093,0.003305,0.003631,0.003825,0.004362,0.004666,0.005221,0.005774,0.006292,0.00715,0.007867,0.008546,0.009552,0.010339,0.011884,0.012877,0.014472,0.016172,0.018199,0.020595,0.023705,0.026579,0.030676,0.033889,0.040283,0.044792,0.051146,0.056996,0.065581,0.073912,0.084984,0.097153,0.111338,0.125679,0.145933,0.163151,0.183279,0.204574,0.227276,0.250786,0.275298,0.300593,0.326339],"mx100":0.47947,"e0":84.605,"r":[0.02382,0.02348,0.01832,0.01834,0.02013,0.01581,0.00505]}},"DEU":{"name":"Germany","M":{"qx":[0.003044,0.000321,0.00012,0.000101,9.4e-05,8.7e-05,8.1e-05,7.5e-05,7e-05,6.7e-05,6.7e-05,6.6e-05,7e-05,8.3e-05,0.000108,0.000147,0.0002,0.000267,0.000328,0.000369,0.000384,0.000384,0.000385,0.000391,0.000401,0.000411,0.000418,0.000429,0.00045,0.000481,0.000523,0.000571,0.000617,0.000655,0.000696,0.000753,0.000817,0.000881,0.000949,0.001039,0.001143,0.001245,0.001349,0.001462,0.001624,0.001819,0.002016,0.002229,0.002488,0.002782,0.003092,0.003449,0.003895,0.004413,0.00496,0.005544,0.00618,0.006877,0.007631,0.008418,0.009257,0.010183,0.011187,0.012274,0.013366,0.014397,0.01552,0.01672,0.017961,0.019339,0.020938,0.022691,0.02447,0.026426,0.028728,0.031347,0.034228,0.037614,0.041742,0.0468,0.052785,0.059642,0.067513,0.076585,0.086948,0.098622,0.111464,0.125294,0.140531,0.157198,0.174956,0.194546,0.216413,0.239497,0.262375,0.284895,0.308264,0.332338,0.356723,0.38077],"mx100":0.54866,"e0":79.214,"r":[0.02317,0.02132,0.01822,0.01593,0.01617,0.01641,0.00568]},"F":{"qx":[0.002585,0.000259,9.8e-05,8.7e-05,8.5e-05,7.7e-05,6.3e-05,5.2e-05,4.8e-05,5e-05,5.5e-05,6.3e-05,7.2e-05,8e-05,8.9e-05,0.000106,0.000126,0.000142,0.000152,0.000161,0.000162,0.000153,0.000153,0.000157,0.000159,0.000164,0.000175,0.000193,0.000216,0.000243,0.000275,0.0003,0.000311,0.000335,0.000365,0.000393,0.000422,0.000467,0.000518,0.000568,0.000619,0.000673,0.00074,0.00082,0.000912,0.001016,0.001137,0.001278,0.001438,0.00161,0.001785,0.001973,0.002189,0.002435,0.002708,0.003018,0.003348,0.003676,0.004034,0.004456,0.004909,0.005348,0.005797,0.006322,0.006901,0.007497,0.008157,0.008877,0.009654,0.010536,0.01156,0.012675,0.013794,0.014998,0.016393,0.017996,0.019836,0.02216,0.025195,0.029133,0.033925,0.039417,0.045728,0.053089,0.061665,0.07159,0.082892,0.095476,0.109399,0.125011,0.142454,0.161462,0.181272,0.202099,0.224565,0.248639,0.274729,0.301469,0.327561,0.353934],"mx100":0.51868,"e0":83.878,"r":[0.0224,0.02062,0.01763,0.01543,0.0157,0.01602,0.0056]}},"FRA":{"name":"France","M":{"qx":[0.00342,0.000328,0.00013,0.000112,9.6e-05,7.9e-05,7.4e-05,7e-05,6.1e-05,5.7e-05,6.2e-05,6.6e-05,7.4e-05,9.2e-05,0.000122,0.000158,0.000205,0.000267,0.000342,0.000418,0.000477,0.000502,0.000508,0.000517,0.000542,0.000572,0.000594,0.00061,0.000629,0.000654,0.000687,0.000723,0.000757,0.000799,0.000851,0.000912,0.00098,0.001046,0.001114,0.001193,0.001283,0.001396,0.001541,0.001719,0.0019,0.002085,0.002299,0.002546,0.002819,0.003108,0.003394,0.003713,0.00409,0.004516,0.004968,0.005505,0.006099,0.006693,0.007306,0.007966,0.0087,0.009509,0.010265,0.01088,0.01147,0.012164,0.012802,0.013476,0.01433,0.015343,0.0164,0.017538,0.018788,0.02025,0.021985,0.023959,0.026159,0.02893,0.032244,0.035937,0.040119,0.045025,0.050945,0.058273,0.066906,0.076613,0.087629,0.10046,0.114188,0.128877,0.145055,0.162898,0.18261,0.203737,0.225385,0.247981,0.272258,0.297342,0.322255,0.347398],"mx100":0.50616,"e0":80.586,"r":[0.0148,0.01462,0.01283,0.01187,0.01292,0.01391,0.00572]},"F":{"qx":[0.002877,0.00027,0.000103,8.9e-05,8e-05,6.7e-05,5.6e-05,5e-05,4.8e-05,4.9e-05,5.1e-05,5.4e-05,5.8e-05,6.9e-05,8.3e-05,9.7e-05,0.000112,0.00013,0.000149,0.000163,0.000175,0.000185,0.000186,0.000185,0.00019,0.000198,0.000202,0.000212,0.000239,0.000267,0.000276,0.000282,0.000306,0.000333,0.000362,0.000398,0.000441,0.00049,0.000541,0.000589,0.000637,0.000699,0.000786,0.0009,0.001005,0.001107,0.001237,0.001385,0.001529,0.001678,0.001846,0.00202,0.002173,0.002337,0.002549,0.002797,0.003051,0.003288,0.003538,0.003832,0.004132,0.004387,0.004629,0.004924,0.005263,0.005615,0.005955,0.006313,0.006731,0.007263,0.007933,0.008708,0.009515,0.010404,0.011444,0.012683,0.014141,0.015823,0.017849,0.020383,0.023447,0.027011,0.031185,0.036215,0.042292,0.049604,0.058111,0.067856,0.078879,0.091187,0.104719,0.119448,0.135598,0.153694,0.174069,0.196278,0.219631,0.244088,0.26984,0.296357],"mx100":0.44449,"e0":86.203,"r":[0.01866,0.01841,0.01604,0.01478,0.01606,0.01738,0.00727]}},"ITA":{"name":"Italy","M":{"qx":[0.002358,0.000214,8.7e-05,8.1e-05,7.2e-05,5.9e-05,5.5e-05,5.6e-05,5.9e-05,6.4e-05,6.8e-05,6.8e-05,7.1e-05,8.4e-05,0.00011,0.000146,0.000194,0.000251,0.000302,0.000329,0.000343,0.000361,0.000367,0.000366,0.000372,0.000381,0.000389,0.000392,0.000389,0.000393,0.000414,0.000445,0.00047,0.000491,0.000513,0.000539,0.000569,0.000606,0.000656,0.000727,0.000809,0.00089,0.000969,0.001053,0.001176,0.001321,0.001461,0.001599,0.001751,0.001932,0.00215,0.0024,0.002667,0.00294,0.003224,0.00359,0.004009,0.004422,0.004853,0.005348,0.005901,0.006501,0.007147,0.007871,0.008608,0.00935,0.010347,0.011479,0.012558,0.013691,0.015099,0.016803,0.018681,0.020742,0.022975,0.025424,0.028131,0.031207,0.034883,0.039531,0.045013,0.05118,0.058169,0.066415,0.07609,0.0872,0.099572,0.113083,0.128447,0.145075,0.162067,0.179927,0.19919,0.220201,0.242177,0.265378,0.290049,0.315029,0.339241,0.363593],"mx100":0.52618,"e0":81.753,"r":[0.02428,0.0223,0.01949,0.01841,0.01831,0.01493,0.0054]},"F":{"qx":[0.002075,0.000191,7.2e-05,6.4e-05,6.1e-05,5.5e-05,4.8e-05,4.4e-05,4.4e-05,4.7e-05,5e-05,5.1e-05,5.3e-05,6e-05,7.1e-05,8.2e-05,9.2e-05,0.000103,0.000112,0.000116,0.000125,0.000139,0.000134,0.000126,0.00014,0.00016,0.000162,0.000157,0.000159,0.000167,0.000176,0.000191,0.000213,0.000234,0.000255,0.000283,0.000318,0.000361,0.000404,0.000441,0.000477,0.000524,0.000581,0.000648,0.000722,0.000803,0.000896,0.000996,0.001097,0.001207,0.001333,0.00147,0.001609,0.001762,0.00194,0.002126,0.002319,0.002532,0.002776,0.003056,0.003341,0.003603,0.003891,0.004287,0.004757,0.005229,0.005675,0.006145,0.006733,0.007455,0.008311,0.009308,0.010409,0.011623,0.012949,0.014457,0.016246,0.018467,0.021151,0.024368,0.028247,0.033019,0.038608,0.04492,0.052157,0.060628,0.070386,0.081474,0.094482,0.108944,0.124025,0.139918,0.156994,0.176143,0.197507,0.220742,0.245179,0.27034,0.295982,0.32215],"mx100":0.47589,"e0":85.873,"r":[0.02926,0.0268,0.0233,0.02196,0.02185,0.01793,0.00658]}},"ESP":{"name":"Spain","M":{"qx":[0.002426,0.000393,0.000168,9.6e-05,7.1e-05,6.3e-05,6.1e-05,6e-05,6.2e-05,6.3e-05,6.5e-05,6.8e-05,7.3e-05,8.4e-05,9.9e-05,0.000123,0.000154,0.000188,0.000219,0.000247,0.000267,0.000282,0.000294,0.000308,0.000321,0.000334,0.000348,0.000363,0.000379,0.000396,0.000411,0.000431,0.000447,0.000469,0.000496,0.000525,0.000561,0.000604,0.000652,0.000714,0.000779,0.000866,0.000953,0.00107,0.001206,0.001372,0.001582,0.001826,0.002094,0.002402,0.002717,0.003092,0.003447,0.003858,0.004283,0.004742,0.005207,0.005718,0.006239,0.006846,0.007447,0.008179,0.008797,0.009548,0.010328,0.01115,0.012113,0.01308,0.014159,0.015454,0.016636,0.018342,0.019788,0.021744,0.023852,0.026355,0.029289,0.032726,0.036441,0.041307,0.046111,0.05262,0.058689,0.066629,0.074897,0.085096,0.096266,0.108796,0.122733,0.138131,0.154646,0.172665,0.191495,0.211762,0.232896,0.254972,0.277855,0.301337,0.325187,0.349145],"mx100":0.5048,"e0":81.103,"r":[0.01963,0.01825,0.0165,0.01481,0.01612,0.01461,0.0049]},"F":{"qx":[0.001966,0.00031,0.00013,7.3e-05,5.4e-05,4.7e-05,4.4e-05,4.4e-05,4.6e-05,4.9e-05,5.1e-05,5.4e-05,5.9e-05,6.6e-05,7.5e-05,8.4e-05,9.2e-05,0.0001,0.000108,0.000115,0.000121,0.000125,0.000127,0.000131,0.000135,0.000139,0.000142,0.000148,0.000156,0.000168,0.000178,0.00019,0.000201,0.000219,0.000242,0.000268,0.000299,0.000333,0.000369,0.000411,0.000453,0.000508,0.000561,0.000631,0.000707,0.000793,0.000897,0.001012,0.001133,0.001271,0.001406,0.001569,0.001713,0.001881,0.002049,0.002244,0.002444,0.002661,0.002866,0.003091,0.003297,0.003567,0.003779,0.004049,0.004328,0.004626,0.004999,0.005382,0.005827,0.006393,0.00695,0.007804,0.008591,0.009692,0.010948,0.012476,0.014295,0.016469,0.018911,0.022188,0.025632,0.030407,0.03515,0.041392,0.048123,0.056554,0.066038,0.076889,0.08915,0.102898,0.117861,0.134328,0.151669,0.170754,0.191502,0.214083,0.238312,0.263788,0.290036,0.316751],"mx100":0.47026,"e0":86.436,"r":[0.02776,0.02575,0.02321,0.02076,0.02258,0.02061,0.007]}},"NLD":{"name":"Netherlands","M":{"qx":[0.003359,0.000252,0.000104,0.000103,8.4e-05,6.3e-05,5.8e-05,5.4e-05,4.3e-05,3.9e-05,5e-05,6.4e-05,7.5e-05,9e-05,0.00011,0.000135,0.000167,0.000216,0.00027,0.000315,0.000337,0.000336,0.000342,0.000357,0.000373,0.000389,0.000405,0.000413,0.00041,0.000415,0.000444,0.000483,0.000511,0.000522,0.00054,0.000584,0.000639,0.00068,0.000709,0.000744,0.000806,0.000914,0.001044,0.001157,0.001251,0.001352,0.001493,0.001652,0.001798,0.001964,0.002196,0.002468,0.002746,0.003065,0.003456,0.003822,0.004201,0.004694,0.005282,0.005906,0.006554,0.007253,0.007995,0.008767,0.009646,0.010655,0.01164,0.012662,0.013876,0.015346,0.017067,0.018939,0.020885,0.023112,0.025855,0.028862,0.031828,0.035369,0.039929,0.045768,0.052465,0.059352,0.066931,0.075993,0.086829,0.099367,0.11266,0.126068,0.141731,0.159354,0.177662,0.196813,0.217729,0.239643,0.261644,0.284363,0.308418,0.332977,0.356807,0.380523],"mx100":0.54763,"e0":80.722,"r":[0.02331,0.02702,0.01971,0.01868,0.01919,0.01646,0.00422]},"F":{"qx":[0.002799,0.00024,7.9e-05,6.3e-05,6.1e-05,5.9e-05,5.3e-05,5e-05,5.5e-05,5.6e-05,4.6e-05,4.3e-05,4.6e-05,5.4e-05,6.7e-05,8.8e-05,0.000113,0.000136,0.000149,0.000152,0.000148,0.000146,0.000155,0.000166,0.000168,0.000168,0.000178,0.000201,0.000234,0.000262,0.000268,0.000272,0.000297,0.000338,0.000373,0.000384,0.000392,0.000426,0.000477,0.000531,0.000586,0.000646,0.000722,0.00082,0.000908,0.000995,0.001111,0.001241,0.001362,0.001512,0.00174,0.001989,0.00218,0.002392,0.002719,0.003031,0.00332,0.003649,0.004023,0.00443,0.004885,0.005408,0.005923,0.00634,0.006795,0.007415,0.008059,0.008703,0.009402,0.010268,0.01139,0.012622,0.013792,0.015085,0.016774,0.018841,0.021142,0.023649,0.026565,0.03019,0.034649,0.039972,0.046109,0.052921,0.060958,0.070971,0.082574,0.095007,0.108631,0.124086,0.141949,0.1616,0.18227,0.203753,0.226349,0.250647,0.276883,0.303975,0.330516,0.35728],"mx100":0.52393,"e0":83.854,"r":[0.02288,0.02653,0.01933,0.01833,0.01884,0.01625,0.00421]}},"CHE":{"name":"Switzerland","M":{"qx":[0.00337,0.000238,8.8e-05,8.3e-05,7.8e-05,6.6e-05,5.4e-05,4.8e-05,5e-05,4.9e-05,4.3e-05,4.9e-05,6.4e-05,8.3e-05,0.000104,0.000133,0.000175,0.000236,0.000305,0.000363,0.000403,0.00042,0.000406,0.00039,0.000402,0.000416,0.000405,0.000387,0.00038,0.000379,0.000377,0.000394,0.000439,0.000466,0.000469,0.000469,0.000497,0.000577,0.000663,0.000687,0.000709,0.000802,0.000914,0.00097,0.001073,0.001207,0.001306,0.001409,0.001576,0.001787,0.002005,0.002216,0.002438,0.002709,0.003051,0.003428,0.003764,0.004027,0.004354,0.004919,0.005619,0.006245,0.00687,0.007642,0.008457,0.009205,0.010167,0.0112,0.012015,0.012897,0.014241,0.01593,0.01767,0.019435,0.021257,0.023295,0.02569,0.028658,0.032372,0.036925,0.042214,0.047968,0.054445,0.062348,0.071664,0.08245,0.09437,0.107376,0.121926,0.138549,0.157654,0.177978,0.197591,0.21723,0.238446,0.26235,0.28915,0.316209,0.340949,0.36612],"mx100":0.53279,"e0":82.17,"r":[0.0189,0.02066,0.01843,0.01741,0.01712,0.01473,0.00513]},"F":{"qx":[0.002965,0.000236,7.6e-05,5.6e-05,4.8e-05,4.5e-05,4.9e-05,5.3e-05,5e-05,4.7e-05,5.3e-05,5.8e-05,6.3e-05,7.1e-05,7.7e-05,7.8e-05,8.7e-05,0.000118,0.000145,0.000124,9.4e-05,8.9e-05,0.000121,0.000172,0.000178,0.000152,0.000132,0.000133,0.000162,0.0002,0.000212,0.000216,0.000236,0.000242,0.000251,0.000287,0.000326,0.000331,0.00033,0.00036,0.00041,0.000453,0.000511,0.000603,0.000679,0.000732,0.000784,0.000869,0.001015,0.001165,0.001247,0.001311,0.001444,0.001662,0.001916,0.002065,0.002186,0.002418,0.002716,0.002983,0.003234,0.003514,0.00384,0.004236,0.004774,0.00546,0.005928,0.006277,0.006762,0.007446,0.008317,0.009308,0.010333,0.011444,0.012717,0.014208,0.015931,0.017985,0.020403,0.023203,0.026701,0.031243,0.036761,0.043142,0.050264,0.058374,0.067951,0.079684,0.09276,0.106879,0.122289,0.139786,0.16006,0.182356,0.205226,0.229177,0.255048,0.282324,0.310061,0.338134],"mx100":0.50198,"e0":85.947,"r":[0.02311,0.02528,0.02252,0.02126,0.02093,0.01811,0.00638]}},"SWE":{"name":"Sweden","M":{"qx":[0.00203,0.000321,0.000142,8.4e-05,6.4e-05,5.5e-05,4.6e-05,3.9e-05,3.4e-05,3.4e-05,3.8e-05,4.7e-05,6e-05,7.8e-05,0.000101,0.000129,0.000173,0.000238,0.00032,0.000409,0.000485,0.000537,0.000573,0.000603,0.000639,0.000664,0.000671,0.000668,0.000661,0.00065,0.000642,0.000644,0.000654,0.000664,0.00068,0.000698,0.000717,0.000735,0.000758,0.000805,0.000855,0.000907,0.000952,0.001001,0.001061,0.001136,0.001229,0.001345,0.001493,0.001669,0.001865,0.00209,0.002352,0.002656,0.002972,0.003301,0.003638,0.003994,0.004396,0.004889,0.005473,0.006143,0.006897,0.007674,0.00852,0.009428,0.010363,0.01135,0.012421,0.013637,0.014985,0.016512,0.018232,0.020176,0.022425,0.025081,0.028161,0.031729,0.035908,0.040681,0.046136,0.052416,0.059715,0.068182,0.077918,0.088996,0.101435,0.115375,0.130893,0.148221,0.167164,0.187216,0.208377,0.230711,0.25447,0.279002,0.304238,0.329845,0.355493,0.380875],"mx100":0.55262,"e0":81.649,"r":[0.02333,0.02233,0.01719,0.01854,0.01804,0.01551,0.00519]},"F":{"qx":[0.001654,0.000302,0.00013,7.3e-05,5.3e-05,4.5e-05,4.4e-05,4.4e-05,4.3e-05,4.4e-05,4.6e-05,5e-05,5.5e-05,6.5e-05,7.8e-05,8.9e-05,0.000103,0.000125,0.00015,0.000177,0.000199,0.00021,0.000218,0.000224,0.00023,0.000233,0.000239,0.000248,0.00026,0.000271,0.000285,0.000302,0.000316,0.000323,0.000328,0.000335,0.000345,0.000361,0.000382,0.000417,0.000456,0.000501,0.000544,0.000591,0.000645,0.000712,0.000804,0.000912,0.001029,0.001149,0.001267,0.001386,0.001507,0.001654,0.001832,0.002057,0.002317,0.002602,0.002916,0.003277,0.003671,0.004087,0.004528,0.004963,0.005445,0.005991,0.006588,0.007254,0.008005,0.008879,0.009855,0.010969,0.01222,0.013579,0.01505,0.016728,0.018674,0.021,0.023836,0.02719,0.031155,0.03585,0.041339,0.047608,0.054776,0.063033,0.072544,0.083598,0.09632,0.110923,0.127204,0.144747,0.16367,0.1841,0.206359,0.2299,0.254787,0.280702,0.307275,0.334168],"mx100":0.49324,"e0":85.224,"r":[0.02464,0.02361,0.01829,0.01968,0.0192,0.01661,0.00565]}},"NOR":{"name":"Norway","M":{"qx":[0.001899,0.000188,6.5e-05,5e-05,5.2e-05,5.2e-05,4.7e-05,3.8e-05,3e-05,2.5e-05,2.6e-05,4.1e-05,7.1e-05,9.5e-05,0.000114,0.000145,0.000193,0.000253,0.000328,0.000436,0.000499,0.000455,0.00046,0.0005,0.000521,0.00054,0.000585,0.0006,0.000536,0.000492,0.000537,0.000603,0.000613,0.000625,0.000643,0.000653,0.000682,0.000752,0.000823,0.000833,0.000828,0.000869,0.000957,0.001066,0.001097,0.001128,0.00127,0.001463,0.0016,0.001716,0.001892,0.002122,0.002373,0.002606,0.002813,0.003119,0.003538,0.004021,0.004534,0.005023,0.005489,0.005951,0.006527,0.007294,0.008114,0.008884,0.009934,0.011143,0.012161,0.013215,0.014609,0.016241,0.01792,0.019818,0.02229,0.024856,0.027174,0.030767,0.035347,0.039873,0.044824,0.051133,0.058694,0.067024,0.076107,0.08632,0.098256,0.112237,0.126763,0.142247,0.160025,0.17986,0.201093,0.222882,0.243769,0.266379,0.292152,0.318687,0.343075,0.367825],"mx100":0.53383,"e0":81.935,"r":[0.02451,0.02512,0.01812,0.01845,0.01798,0.0148,0.00489]},"F":{"qx":[0.001663,0.000161,5.9e-05,4.5e-05,3.5e-05,3.1e-05,3.9e-05,4.4e-05,3.4e-05,2.8e-05,3.9e-05,5.5e-05,7.2e-05,8.9e-05,0.000105,0.000119,0.000135,0.000156,0.000165,0.000152,0.000146,0.000163,0.00017,0.000171,0.000181,0.000195,0.000204,0.000217,0.000243,0.000263,0.000255,0.000252,0.000283,0.000306,0.000317,0.000325,0.000351,0.000406,0.000451,0.000442,0.000467,0.000617,0.000735,0.000634,0.000645,0.000768,0.000914,0.001042,0.001136,0.001235,0.001387,0.001549,0.001669,0.001853,0.002197,0.002443,0.002595,0.002777,0.002977,0.003167,0.003495,0.004117,0.004795,0.005147,0.0055,0.006248,0.006862,0.007437,0.008297,0.009375,0.010454,0.011619,0.01303,0.014539,0.015979,0.01751,0.019512,0.022408,0.025877,0.029296,0.032845,0.03706,0.04244,0.04933,0.056613,0.063009,0.070921,0.083354,0.097379,0.11213,0.128083,0.144995,0.162739,0.182691,0.205984,0.23141,0.256255,0.281506,0.308679,0.335962],"mx100":0.49605,"e0":84.966,"r":[0.02609,0.02676,0.01895,0.01933,0.01882,0.01558,0.00521]}},"JPN":{"name":"Japan","M":{"qx":[0.001733,0.000334,0.000148,0.000112,9.3e-05,8.1e-05,7.4e-05,7.1e-05,6.8e-05,6.5e-05,6.2e-05,6.6e-05,7.9e-05,9.7e-05,0.000121,0.00015,0.000186,0.000232,0.000286,0.000338,0.000391,0.000442,0.000454,0.000448,0.000454,0.00046,0.000452,0.000448,0.000469,0.000498,0.000516,0.000529,0.000548,0.000577,0.000609,0.000638,0.000669,0.000707,0.00076,0.000829,0.000908,0.000985,0.001064,0.001158,0.001279,0.001421,0.001573,0.001743,0.001941,0.002151,0.002354,0.002579,0.002864,0.003175,0.003469,0.003806,0.004185,0.004586,0.005021,0.005533,0.0061,0.006706,0.007386,0.008168,0.009001,0.009852,0.010907,0.012085,0.01322,0.014395,0.015767,0.017285,0.018864,0.020589,0.022591,0.024877,0.027424,0.030352,0.033837,0.038102,0.043094,0.048795,0.055284,0.062703,0.071147,0.080592,0.091256,0.103318,0.11592,0.129453,0.14445,0.160658,0.177502,0.195667,0.215327,0.236425,0.258147,0.28032,0.302897,0.325791],"mx100":0.47072,"e0":81.834,"r":[0.01908,0.01818,0.01642,0.0158,0.01621,0.01471,0.00698]},"F":{"qx":[0.001593,0.000318,0.000136,9.7e-05,8e-05,7e-05,6.3e-05,5.6e-05,4.7e-05,4.4e-05,5.1e-05,5.6e-05,5.9e-05,6.7e-05,7.8e-05,9.3e-05,0.000106,0.000117,0.000129,0.000148,0.000168,0.000179,0.000187,0.000193,0.000199,0.000205,0.000213,0.000223,0.000232,0.000243,0.000258,0.000274,0.000286,0.000309,0.000339,0.000367,0.00039,0.000409,0.000436,0.000483,0.000541,0.000596,0.000646,0.0007,0.000767,0.000847,0.000934,0.00103,0.001137,0.001245,0.001343,0.001452,0.00159,0.001725,0.001821,0.001931,0.002067,0.002226,0.002394,0.002567,0.002752,0.002969,0.003205,0.003443,0.003719,0.004073,0.004463,0.00489,0.00537,0.005906,0.006491,0.007112,0.007773,0.008564,0.009587,0.010785,0.01209,0.013711,0.01572,0.018131,0.020895,0.024027,0.027714,0.032222,0.037543,0.043503,0.050318,0.058398,0.067683,0.078363,0.090518,0.104051,0.118716,0.135009,0.153039,0.172966,0.19439,0.217253,0.241488,0.266794],"mx100":0.4059,"e0":87.879,"r":[0.02694,0.02562,0.02306,0.02216,0.02277,0.02086,0.0101]}},"SGP":{"name":"Singapore","M":{"qx":[0.002035,0.000166,0.000132,0.000106,8.7e-05,7.4e-05,6.6e-05,6.2e-05,6.2e-05,6.6e-05,7.3e-05,8.5e-05,0.000101,0.000121,0.000146,0.000174,0.000203,0.000231,0.000255,0.000273,0.000285,0.000292,0.000296,0.000299,0.000303,0.000308,0.000317,0.000329,0.000344,0.000363,0.000385,0.000409,0.000435,0.000462,0.000491,0.000525,0.000564,0.000614,0.000676,0.000751,0.00084,0.000941,0.00105,0.001164,0.001283,0.001407,0.001542,0.001696,0.001874,0.002084,0.002328,0.002605,0.002912,0.003246,0.003605,0.003989,0.004402,0.004849,0.005335,0.005867,0.006445,0.007075,0.007759,0.008502,0.009322,0.010243,0.011303,0.012535,0.013977,0.015644,0.017543,0.019663,0.021961,0.024404,0.026993,0.02975,0.032761,0.03611,0.03989,0.044183,0.049057,0.054566,0.060712,0.067517,0.075034,0.083331,0.092508,0.102683,0.113935,0.12617,0.139456,0.153728,0.168392,0.183642,0.199857,0.217262,0.23598,0.255097,0.274684,0.294906],"mx100":0.43474,"e0":81.382,"r":[0.01712,0.01594,0.01386,0.01323,0.0156,0.01279,0.00681]},"F":{"qx":[0.001479,0.000178,0.00012,8.3e-05,6e-05,4.6e-05,3.9e-05,3.6e-05,3.7e-05,4.1e-05,4.9e-05,5.9e-05,7.1e-05,8.3e-05,9.3e-05,0.000101,0.000106,0.000111,0.000115,0.00012,0.000126,0.000131,0.000136,0.00014,0.000143,0.000146,0.000151,0.000157,0.000166,0.000178,0.000192,0.000208,0.000223,0.000238,0.000252,0.000267,0.000284,0.000306,0.000336,0.000374,0.000423,0.000482,0.000549,0.000623,0.000703,0.000789,0.00088,0.000979,0.001089,0.001212,0.001347,0.001494,0.001653,0.001821,0.001999,0.002185,0.002379,0.002583,0.0028,0.003031,0.003282,0.003558,0.003865,0.004208,0.004597,0.00504,0.005553,0.006143,0.006826,0.007617,0.008535,0.009613,0.010865,0.012317,0.013994,0.015922,0.018147,0.020677,0.023539,0.026762,0.030381,0.034473,0.039062,0.044204,0.049973,0.05643,0.06367,0.071763,0.08077,0.090646,0.101504,0.113378,0.125913,0.139371,0.15411,0.1702,0.187924,0.206501,0.226009,0.246562],"mx100":0.34978,"e0":86.358,"r":[0.02051,0.01829,0.01631,0.01534,0.01809,0.01497,0.00824]}},"KOR":{"name":"South Korea","M":{"qx":[0.002105,0.0002,0.000151,0.000121,0.000102,9e-05,8.2e-05,7.7e-05,7.3e-05,6.7e-05,5.8e-05,5.2e-05,5.2e-05,5.6e-05,6.5e-05,7.8e-05,9.4e-05,0.000113,0.000129,0.000142,0.000148,0.000151,0.000151,0.000152,0.000154,0.000159,0.000167,0.000178,0.00019,0.000205,0.000222,0.00024,0.000262,0.00029,0.000323,0.000363,0.000412,0.000469,0.000533,0.000608,0.000693,0.000784,0.000882,0.000989,0.001106,0.001232,0.001373,0.001547,0.001733,0.001911,0.002103,0.00233,0.002579,0.002883,0.003272,0.00371,0.004174,0.004657,0.005178,0.005751,0.006369,0.007112,0.008024,0.009011,0.010211,0.011746,0.013398,0.014867,0.01603,0.016952,0.017748,0.018645,0.020013,0.022204,0.025155,0.028733,0.032928,0.037493,0.042229,0.047122,0.05223,0.057803,0.064011,0.07108,0.079159,0.088343,0.098745,0.110219,0.122727,0.136471,0.151311,0.167342,0.18536,0.204676,0.224391,0.244413,0.265761,0.288282,0.31148,0.334795],"mx100":0.47026,"e0":81.317,"r":[0.0145,0.01689,0.01339,0.01395,0.01542,0.01224,0.00679]},"F":{"qx":[0.001823,0.000211,0.00016,0.000127,0.000105,9e-05,7.9e-05,7.2e-05,6.7e-05,6e-05,5.2e-05,4.7e-05,4.6e-05,4.7e-05,5.1e-05,5.8e-05,6.7e-05,7.7e-05,8.6e-05,9.4e-05,9.9e-05,0.000103,0.000105,0.000107,0.000109,0.000112,0.000116,0.000122,0.000129,0.000138,0.00015,0.000161,0.000174,0.000191,0.000207,0.000224,0.000244,0.000265,0.000284,0.000305,0.000329,0.000354,0.000383,0.000417,0.000456,0.000498,0.000545,0.000605,0.000664,0.00071,0.000755,0.000807,0.000856,0.000923,0.001032,0.00117,0.00133,0.001508,0.001707,0.001927,0.002159,0.002452,0.002834,0.003248,0.00379,0.004557,0.005467,0.00638,0.00716,0.007827,0.008413,0.008936,0.009691,0.010976,0.012744,0.014888,0.017395,0.020101,0.022867,0.025724,0.028768,0.032203,0.036173,0.040833,0.046295,0.05257,0.05968,0.067588,0.076269,0.085695,0.096004,0.107289,0.119362,0.132561,0.147234,0.163221,0.18066,0.199059,0.218485,0.238977],"mx100":0.34891,"e0":87.283,"r":[0.01999,0.02196,0.01747,0.01602,0.01873,0.01533,0.00885]}}}};
+// LIFETABLES:END
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+//  Data: per-country prevalence (WHO GHO 2022, age-standardised, both sexes)
+// ═══════════════════════════════════════════════════════════════════════════
+// smk = current tobacco smoking %, ob = BMI ≥ 30 %, ow = BMI ≥ 25 %, uw = BMI < 18.5 %
+const PREV = {
+  USA:{smk:15.6, ob:40.4, ow:71.1, uw:2.0}, GBR:{smk:14.0, ob:27.0, ow:61.6, uw:2.0},
+  CAN:{smk:12.1, ob:25.8, ow:58.5, uw:2.3}, AUS:{smk:12.4, ob:29.8, ow:63.6, uw:1.8},
+  NZL:{smk:10.3, ob:33.3, ow:67.2, uw:1.4}, IRL:{smk:19.2, ob:27.4, ow:64.5, uw:1.4},
+  DEU:{smk:22.8, ob:20.6, ow:53.8, uw:1.9}, FRA:{smk:33.7, ob:11.5, ow:38.7, uw:3.9},
+  ITA:{smk:22.7, ob:14.4, ow:46.3, uw:2.5}, ESP:{smk:28.1, ob:16.1, ow:51.2, uw:2.2},
+  NLD:{smk:21.4, ob:14.5, ow:46.3, uw:1.8}, CHE:{smk:23.6, ob:11.0, ow:37.7, uw:4.1},
+  SWE:{smk:11.3, ob:17.0, ow:52.7, uw:1.7}, NOR:{smk:14.4, ob:19.5, ow:57.8, uw:1.4},
+  JPN:{smk:18.5, ob:5.5,  ow:23.9, uw:10.9}, SGP:{smk:14.1, ob:15.2, ow:45.5, uw:6.4},
+  KOR:{smk:19.6, ob:7.4,  ow:35.6, uw:5.3},
+};
+const FORMER_SHARE = 0.22;      // former smokers as a share of adults; OECD-typical, applied to all countries
+const VASC_SHARE = 0.28;        // share of deaths from vascular causes (WHO, high-income countries)
+const MAX_AGE = 110;            // everyone is assumed dead by MAX_AGE + 1
+const MAX_MULT = 12;            // cap on the combined hazard multiplier — see methodology
+// The favourable side is soft: combined low-risk profiles are studied to about
+// half the average hazard (Li 2018; Loef & Walach 2012); below that each further
+// halving counts half, with a hard floor at 0.2 (raw 0.08).
+const SOFT_FROM = 0.5, MIN_MULT = 0.2;
+const BASE_YR = new Date().getFullYear();
+
+// Piecewise-linear interpolation through [age, value] anchors, flat beyond the ends.
+function interp(anchors, x) {
+  if (x <= anchors[0][0]) return anchors[0][1];
+  for (let i = 1; i < anchors.length; i++) {
+    const [x0, y0] = anchors[i - 1], [x1, y1] = anchors[i];
+    if (x <= x1) return y0 + (y1 - y0) * (x - x0) / (x1 - x0);
+  }
+  return anchors[anchors.length - 1][1];
+}
+// Chronic-condition prevalence rises steeply with age, so the "average person"
+// a 40-year-old is compared with is far healthier than the one an 80-year-old
+// is. Adult anchors, approximate, from CDC/NHANES and OECD survey figures.
+const AGE_PREV = {
+  diabetes: [[25, .04], [50, .15], [70, .27], [90, .27]],
+  cvd:      [[30, .01], [50, .05], [65, .12], [80, .25], [95, .30]],
+  copd:     [[30, .01], [50, .05], [65, .10], [80, .14]],
+  ckd:      [[30, .01], [50, .05], [65, .15], [80, .35]],
+};
+// Systolic blood pressure drifts upward with age: share of adults in each band
+// (<120, 120s, 130s, 140–159, ≥160) at anchor ages.
+const SBP_PREV = [ [30, [.55, .25, .12, .06, .02]], [50, [.35, .22, .18, .18, .07]],
+                   [70, [.18, .17, .20, .30, .15]], [90, [.15, .15, .20, .32, .18]] ];
+function sbpDist(x) {
+  const shares = [0, 1, 2, 3, 4].map(i => interp(SBP_PREV.map(([a, v]) => [a, v[i]]), x));
+  const tot = shares.reduce((a, b) => a + b, 0);
+  return [112, 125, 135, 150, 170].map((v, i) => ({ hr: sbpHR(v), p: shares[i] / tot }));
+}
+// Median systolic pressure by age; a person's reading is assumed to drift with it.
+const SBP_MEDIAN = [[30, 118], [50, 125], [70, 135], [90, 140]];
+function sbpAt(s, x) { return s.sbp + interp(SBP_MEDIAN, x) - interp(SBP_MEDIAN, s.age); }
+
+// Someone free of a condition today may still develop it. Given the population
+// prevalence P(x), the chance of having it by age x for a person without it at
+// age a is (P(x) − P(a)) / (1 − P(a)); their expected hazard is the mix. This
+// is what keeps "no diabetes at 40" from being credited as "never diabetes".
+function devProb(key, age, x) {
+  const P = interp(AGE_PREV[key], x), P0 = interp(AGE_PREV[key], age);
+  return Math.max(0, (P - P0) / (1 - P0));
+}
+function expectHR(has, hrIfHas, key, s, x) { return has ? hrIfHas : 1 + devProb(key, s.age, x) * (hrIfHas - 1); }
+const COPD_MEAN_HR = .7 * 1.6 + .3 * 2.7, CKD_MEAN_HR = .9 * 1.5 + .1 * 3.1;
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Risk factors — the single source of truth for the engine, the tornado,
+//  the what-if list and the methodology table.
+//    hr(s, x)   raw hazard ratio for state s at future age x
+//    dist(s)    reference distribution [{hr, p}] used to re-anchor to the average
+//    value(s)   label of the person's current category
+// ═══════════════════════════════════════════════════════════════════════════
+// Prevalence-weighted (.35/.40/.25) these average 2.8 — the all-cause HR of the
+// average current smoker in Thun 2013 and Jha 2013. The light-smoker anchor is
+// Inoue-Choi's 1.87 for 1–10/day (in 59–82-year-olds, so slightly attenuated).
+const SMOKE_HR = { lt10: 2.0, '10to19': 2.9, ge20: 3.5 };
+const SMOKE_SPLIT = { lt10: .35, '10to19': .40, ge20: .25 };
+// Excess risk after quitting decays with a 7-year time constant to a 5% floor.
+function formerHR(cigs, yrs) { return 1 + (SMOKE_HR[cigs] - 1) * (0.05 + 0.95 * Math.exp(-Math.max(0, yrs) / 7)); }
+
+const BMI_BANDS = [ // [upper bound, HR] — Global BMI Mortality Collaboration 2016, ref 20–25
+  [18.5, 1.51], [20, 1.13], [25, 1.00], [27.5, 1.07], [30, 1.20], [35, 1.45], [40, 1.94], [Infinity, 2.76] ];
+function bmiOf(s) { const h = s.height / 100; return s.weight / (h * h); }
+function bmiHR(b) { for (const [ub, hr] of BMI_BANDS) if (b < ub) return hr; return 2.76; }
+function bmiDist(c) {
+  const p = PREV[c], uw = p.uw / 100, ow = (p.ow - p.ob) / 100, ob = p.ob / 100;
+  const under20 = 0.04, normal = Math.max(0, 1 - uw - under20 - ow - ob);
+  return [ {hr:1.51, p:uw}, {hr:1.13, p:under20}, {hr:1.00, p:normal},
+           {hr:1.07, p:ow*.55}, {hr:1.20, p:ow*.45},
+           {hr:1.45, p:ob*.62}, {hr:1.94, p:ob*.24}, {hr:2.76, p:ob*.14} ];
+}
+
+const ACT_BANDS = [ [0, 1.00], [150, 0.80], [300, 0.69], [450, 0.63], [Infinity, 0.61] ]; // Arem 2015, ref none
+function actHR(m) { if (m <= 0) return 1; for (const [ub, hr] of ACT_BANDS.slice(1)) if (m < ub) return hr; return 0.61; }
+
+// Alcohol: back-solved so a 40-year-old loses ≈ 0.5 / 1.5 / 4.5 years (Wood 2018).
+const ALC_BANDS = [ [7, 1.00], [14, 1.07], [25, 1.21], [Infinity, 1.68] ];
+function alcHR(d) { for (const [ub, hr] of ALC_BANDS) if (d <= ub) return hr; return ALC_BANDS[3][1]; }
+
+function fvHR(s) { return Math.pow(0.95, Math.min(5, Math.max(0, s))); }     // Wang 2014, per serving to 5
+
+function sleepHR(h) { return h < 6 ? 1.12 : h < 7 ? 1.06 : h < 9 ? 1.00 : 1.30; } // Cappuccio 2010
+
+function sbpHR(v) { const d = Math.max(0, v - 115); return 1 + VASC_SHARE * (Math.pow(2, d / 20) - 1); }
+
+// HR by the age a parent attained. Atkins 2016: ×0.83 per decade beyond 70;
+// 100+: centenarian-offspring meta-analysis. Under 70 is held at the 70s
+// reference (conservative — the source did not quantify below it).
+const PARENT_HR = { lt70: 1.00, '70s': 1.00, '80s': 0.83, '90s': 0.69, '100': 0.58 };
+const PARENT_DIST = { lt70: .30, '70s': .27, '80s': .28, '90s': .13, '100': .02 };
+const PARENT_BANDS = [ ['lt70', 0, 70], ['70s', 70, 80], ['80s', 80, 90], ['90s', 90, 100], ['100', 100, Infinity] ];
+// "Unknown" is the population average, so it neither rewards nor penalises.
+PARENT_HR.unk = Object.keys(PARENT_DIST).reduce((a, k) => a + PARENT_DIST[k] * PARENT_HR[k], 0);
+// Input codes: unk · d_<band> (passed away, age reached) · a_<band> (still living, age now)
+const ALIVE_AGE = { a_lt60: 55, a_60s: 65, a_70s: 75, a_80s: 85, a_90s: 95, a_100: 102 };
+const PARENT_CODES = ['unk', ...Object.keys(ALIVE_AGE), ...PARENT_BANDS.map(b => 'd_' + b[0])];
+// A living parent is censored data: what matters is the age they will reach.
+// Credit the expectation over the attained-age bands, weighted by the chance
+// of reaching each one from their current age, taken from the life table.
+function parentHR(code, sex, country) {
+  if (code === 'unk') return PARENT_HR.unk;
+  if (code.startsWith('d_')) return PARENT_HR[code.slice(2)];
+  const a = ALIVE_AGE[code], S = survival(baseQ(country, sex), a);   // S[x] = P(alive at x | alive at a)
+  const alive = x => x <= a ? 1 : x > MAX_AGE + 1 ? 0 : S[x];
+  let hr = 0;
+  for (const [band, lo, hi] of PARENT_BANDS) hr += (alive(lo) - alive(hi)) * PARENT_HR[band];
+  return hr;
+}
+
+// ── Optional measurements ──────────────────────────────────────────────────
+// Each is judged against age/sex peers, so leaving it blank (= population
+// average) is exactly neutral and entering it moves the estimate only by
+// how far you sit from the norm. Norms are approximate population means.
+const VO2_NORM = { M: [[25, 43], [35, 40], [45, 37], [55, 33], [65, 30], [75, 26]],     // ml/kg/min (ACSM / FRIEND registry)
+                   F: [[25, 37], [35, 34], [45, 31], [55, 28], [65, 25], [75, 22]] };
+const GRIP_NORM = { M: [[25, 47], [35, 47], [45, 45], [55, 42], [65, 38], [75, 33], [85, 27]],   // kg (Dodds 2014)
+                    F: [[25, 29], [35, 29], [45, 28], [55, 26], [65, 24], [75, 21], [85, 17]] };
+const WAIST_REF = { M: 95, F: 85 };            // cm, population median
+const RHR_REF = 70, CRP_REF = 1.5;             // bpm; mg/L (median)
+// Annual-mean PM2.5 by country, µg/m³ (WHO / IQAir, approximate). Blank input = this value.
+const PM25_COUNTRY = { USA: 8, GBR: 9, CAN: 7, AUS: 7, NZL: 6, IRL: 8, DEU: 11, FRA: 10, ITA: 15, ESP: 10,
+                       NLD: 11, CHE: 9, SWE: 5, NOR: 6, JPN: 11, SGP: 18, KOR: 22 };
+AGE_PREV.af = [[40, .005], [60, .02], [70, .06], [80, .10], [90, .12]];
+AGE_PREV.drugs = [[20, .015], [40, .012], [60, .005], [75, .001]];   // opioid/stimulant dependence is concentrated in the young
+// A continuous measure's reference distribution: five points of a normal, ±2 SD.
+const Z5 = [-2, -1, 0, 1, 2], W5 = Z5.map(z => Math.exp(-z * z / 2)), W5S = W5.reduce((a, b) => a + b, 0);
+function normalDist(mean, sd, hrOf) { return Z5.map((z, i) => ({ hr: hrOf(mean + z * sd), p: W5[i] / W5S })); }
+function vo2HR(v, s) { return Math.pow(0.87, (v - interp(VO2_NORM[s.sex], s.age)) / 3.5); }     // Kodama: 13% per MET (3.5 ml/kg/min)
+function gripHR(g, s) { return Math.pow(1.16, (interp(GRIP_NORM[s.sex], s.age) - g) / 5); }     // Leong: 1.16 per 5 kg lower
+function waistHR(w, s) { return Math.pow(1.11, (w - WAIST_REF[s.sex]) / 10); }                 // Jayedi: 1.11 per 10 cm
+function rhrHR(r) { return Math.pow(1.09, (r - RHR_REF) / 10); }                                // Zhang: 1.09 per 10 bpm
+function crpHR(c) { return Math.pow(1.34, Math.log(c / CRP_REF) / Math.log(3)); }              // ERFC: 1.34 per 3-fold
+function sitHR(h) { return Math.pow(1.04, Math.max(0, h - 8)) * Math.pow(1.01, Math.min(h, 8)); } // Patterson: threshold ~8 h
+// Correlated items are capped as a group so they cannot stack past what
+// whole-pattern studies find: diet patterns top-vs-bottom ≈ 0.75–0.8
+// (Sotos-Prieto 2017); socioeconomic position low-vs-high ≈ 1.3–1.6;
+// fitness (aerobic, strength, grip, heart rate, sitting) low-vs-high ≈ 2.5
+// (Kodama's low-vs-high CRF alone is 1.70); adiposity (BMI + waist) ≈ 3.
+const GROUP_CAPS = { diet: 1.35, ses: 1.6, fitness: 2.5, body: 3.0 };
+
+const FACTORS = [
+  { id:'smoking', group:'Lifestyle', label:'Smoking',
+    hr: (s, x) => s.smoke === 'never' ? 1 : s.smoke === 'cigar' ? 1.20 : s.smoke === 'current' ? SMOKE_HR[s.cigs]
+                 : formerHR(s.cigs, s.quitYears + (x - s.age)),
+    dist: s => { const cur = PREV[s.country].smk / 100, never = 1 - cur - FORMER_SHARE;
+      return [ {hr:1, p:never}, {hr:formerHR('10to19', 15), p:FORMER_SHARE},
+               ...Object.keys(SMOKE_HR).map(k => ({hr:SMOKE_HR[k], p:cur * SMOKE_SPLIT[k]})) ]; },
+    value: s => s.smoke === 'never' ? 'Never' : s.smoke === 'cigar' ? 'Cigar / pipe only' : s.smoke === 'current' ? `Current, ${cigLabel(s.cigs)}/day`
+                 : `Quit ${s.quitYears} yr ago (${cigLabel(s.cigs)}/day)`,
+    attenFrom: 75,   // Thun 2013: smokers' all-cause RR is still ≥ 3 at 55–74, fading only after
+    hrText: 'never 1.0 · current <10/day 2.0, 10–19 2.9, ≥20 3.5 (prevalence-weighted 2.8) · cigar or pipe only 1.20 · former: excess decays, 7-yr time constant, 5% floor · vaping: no mortality data yet, not modelled',
+    distText: 'country smoking rate (WHO); 22% former; current split 35/40/25 by intensity',
+    source: [ ['Thun 2013 NEJM', 'https://pubmed.ncbi.nlm.nih.gov/23343064/'],
+              ['Jha 2013 NEJM', 'https://pubmed.ncbi.nlm.nih.gov/23343063/'],
+              ['Inoue-Choi 2017 JAMA IM', 'https://pubmed.ncbi.nlm.nih.gov/27918784/'],
+              ['Christensen 2018 JAMA IM (cigars)', 'https://pubmed.ncbi.nlm.nih.gov/29459935/'] ] },
+  { id:'bmi', group:'Body', label:'Body-mass index', capGroup:'body',
+    hr: s => bmiHR(bmiOf(s)), dist: s => bmiDist(s.country),
+    value: s => `BMI ${bmiOf(s).toFixed(1)}`,
+    hrText: '<18.5 1.51 · 18.5–20 1.13 · 20–25 1.00 · 25–27.5 1.07 · 27.5–30 1.20 · 30–35 1.45 · 35–40 1.94 · ≥40 2.76',
+    distText: 'country underweight / overweight / obesity rates (WHO); fixed split within bands',
+    source: [ ['Global BMI Mortality Collaboration 2016 Lancet', 'https://pubmed.ncbi.nlm.nih.gov/27423262/'] ] },
+  { id:'activity', group:'Fitness', label:'Physical activity', capGroup:'fitness',
+    hr: s => actHR(s.activity),
+    dist: () => [ {hr:1.00, p:.25}, {hr:0.80, p:.30}, {hr:0.69, p:.22}, {hr:0.63, p:.12}, {hr:0.61, p:.11} ],
+    value: s => `${s.activity} min/week`,
+    hrText: 'none 1.00 · <150 min 0.80 · 150–299 0.69 · 300–449 0.63 · ≥450 0.61',
+    distText: '25% none, 30% below guideline, 22% / 12% / 11% above',
+    source: [ ['Arem 2015 JAMA Intern Med', 'https://pubmed.ncbi.nlm.nih.gov/25844730/'] ] },
+  { id:'alcohol', group:'Lifestyle', label:'Alcohol',
+    hr: s => alcHR(s.alcohol),
+    dist: () => ALC_BANDS.map(([, hr], i) => ({ hr, p: [.70, .17, .09, .04][i] })),
+    value: s => `${s.alcohol} drinks/week`,
+    hrText: '0–7 drinks/wk 1.00 · 8–14 1.07 · 15–25 1.21 · >25 1.68 (back-solved from the reported life-expectancy losses)',
+    distText: '70% ≤ 7/wk, 17% 8–14, 9% 15–25, 4% > 25',
+    source: [ ['Wood 2018 Lancet', 'https://pubmed.ncbi.nlm.nih.gov/29676281/'] ] },
+  { id:'diet', group:'Diet', label:'Fruit & vegetables', capGroup:'diet',
+    hr: s => fvHR(s.fruitveg),
+    dist: () => [ {hr:fvHR(1), p:.15}, {hr:fvHR(2), p:.25}, {hr:fvHR(3), p:.25}, {hr:fvHR(4), p:.17}, {hr:fvHR(5), p:.18} ],
+    value: s => `${s.fruitveg} servings/day`,
+    hrText: '0.95 per daily serving, no further benefit past 5 (0 → 5 servings: 0.77)',
+    distText: '15% ≤ 1 serving, 25% 2, 25% 3, 17% 4, 18% ≥ 5',
+    source: [ ['Wang 2014 BMJ', 'https://pubmed.ncbi.nlm.nih.gov/25073782/'] ] },
+  { id:'sleep', group:'Lifestyle', label:'Sleep',
+    hr: s => sleepHR(s.sleep),
+    dist: () => [ {hr:1.12, p:.12}, {hr:1.06, p:.25}, {hr:1.00, p:.53}, {hr:1.30, p:.10} ],
+    value: s => `${s.sleep} h/night`,
+    hrText: '<6 h 1.12 · 6–7 h 1.06 (interpolated) · 7–9 h 1.00 · ≥9 h 1.30',
+    distText: '12% < 6 h, 25% 6–7, 53% 7–9, 10% ≥ 9',
+    source: [ ['Cappuccio 2010 Sleep', 'https://pubmed.ncbi.nlm.nih.gov/20469800/'] ] },
+  { id:'sbp', group:'Body', label:'Blood pressure',
+    hr: (s, x) => sbpHR(sbpAt(s, x)),
+    dist: (s, x) => sbpDist(x),
+    value: s => `${s.sbp} mmHg`,
+    hrText: 'derived: 1 + 0.28 × (2^(ΔSBP/20) − 1) above 115 mmHg → 125: 1.12 · 135: 1.28 · 150: 1.66 · 170: 2.60; your reading drifts with age at the population rate (+17 mmHg from 30 to 70)',
+    distText: 'age-dependent: at 30, 55% < 120 and 8% ≥ 140; at 70, 18% < 120 and 45% ≥ 140',
+    source: [ ['Lewington 2002 Lancet (PSC)', 'https://pubmed.ncbi.nlm.nih.gov/12493255/'] ] },
+  { id:'diabetes', group:'Health', label:'Diabetes',
+    // Prediabetes: 1.13 today, converging on the diabetes HR as onset accrues at
+    // roughly three times the population rate (ADA: 5–10% of prediabetics a year).
+    hr: (s, x) => s.diabetes === 'yes' ? 1.80 : s.diabetes === 'pre' ? 1.13 + Math.min(1, 3 * devProb('diabetes', s.age, x)) * (1.80 - 1.13)
+                 : expectHR(false, 1.80, 'diabetes', s, x),
+    dist: (s, x) => { const p = interp(AGE_PREV.diabetes, x), pre = Math.min(0.25, 1 - p); return [ {hr:1, p:1 - p - pre}, {hr:1.13, p:pre}, {hr:1.80, p} ]; },
+    attenFrom: Infinity,   // established disease: the source's life-expectancy figures imply a sustained HR
+    value: s => s.diabetes === 'yes' ? 'Yes' : s.diabetes === 'pre' ? 'Prediabetes' : 'No',
+    hrText: 'prediabetes 1.13, rising toward 1.80 as progression accrues at three times the population onset rate · diabetes 1.80; if absent, the chance of developing it later is priced in', distText: 'age-dependent prevalence: 4% at 25, 15% at 50, 27% at 70+; 25% prediabetes',
+    source: [ ['Emerging Risk Factors Collaboration 2011 NEJM', 'https://pubmed.ncbi.nlm.nih.gov/21366474/'],
+              ['Cai 2020 BMJ (prediabetes)', 'https://pubmed.ncbi.nlm.nih.gov/32669282/'] ] },
+  { id:'cvd', group:'Health', label:'Heart attack / stroke',
+    hr: (s, x) => expectHR(s.cvd, 2.0, 'cvd', s, x), dist: (s, x) => yesNo(2.0, interp(AGE_PREV.cvd, x)),
+    attenFrom: Infinity,
+    value: s => s.cvd ? 'Yes' : 'No',
+    hrText: '2.0 (history of myocardial infarction or stroke); if absent, the chance of a future event is priced in', distText: 'age-dependent prevalence: 1% at 30, 5% at 50, 12% at 65, 25% at 80',
+    source: [ ['Di Angelantonio 2015 JAMA (ERFC)', 'https://pubmed.ncbi.nlm.nih.gov/26151266/'] ] },
+  { id:'copd', group:'Health', label:'COPD',
+    hr: (s, x) => s.copd === 'severe' ? 2.7 : s.copd === 'moderate' ? 1.6 : expectHR(false, COPD_MEAN_HR, 'copd', s, x),
+    dist: (s, x) => { const p = interp(AGE_PREV.copd, x); return [ {hr:1, p:1 - p}, {hr:1.6, p:p * .7}, {hr:2.7, p:p * .3} ]; },
+    attenFrom: Infinity,
+    value: s => s.copd === 'none' ? 'No' : s.copd === 'severe' ? 'Severe' : 'Mild / moderate',
+    hrText: 'mild–moderate 1.6 · severe 2.7 (adjusted for smoking)', distText: 'age-dependent prevalence: 1% at 30, 5% at 50, 10% at 65, 14% at 80; 30% of cases severe',
+    source: [ ['Mannino 2003 Thorax (NHANES I)', 'https://pubmed.ncbi.nlm.nih.gov/12728157/'] ] },
+  { id:'ckd', group:'Health', label:'Kidney disease',
+    hr: (s, x) => s.ckd === 'stage45' ? 3.1 : s.ckd === 'stage3' ? 1.5 : expectHR(false, CKD_MEAN_HR, 'ckd', s, x),
+    dist: (s, x) => { const p = interp(AGE_PREV.ckd, x); return [ {hr:1, p:1 - p}, {hr:1.5, p:p * .9}, {hr:3.1, p:p * .1} ]; },
+    attenFrom: Infinity,
+    value: s => s.ckd === 'none' ? 'No' : s.ckd === 'stage45' ? 'Stage 4–5' : 'Stage 3',
+    hrText: 'stage 3 (eGFR 30–59) 1.5 · stage 4–5 (eGFR < 30) 3.1', distText: 'age-dependent prevalence: 1% at 30, 5% at 50, 15% at 65, 35% at 80; 10% of cases stage 4–5',
+    source: [ ['CKD Prognosis Consortium 2010 Lancet', 'https://pubmed.ncbi.nlm.nih.gov/20483451/'] ] },
+  { id:'mental', group:'Health', label:'Mental health',
+    hr: s => s.mental === 'smi' ? 2.22 : s.mental === 'depression' ? 1.52 : 1, dist: () => [ {hr:1, p:.90}, {hr:1.52, p:.08}, {hr:2.22, p:.02} ],
+    value: s => s.mental === 'smi' ? 'Serious mental illness' : s.mental === 'depression' ? 'Depression' : 'No diagnosis',
+    hrText: 'depression 1.52 · serious mental illness (bipolar, schizophrenia) 2.22', distText: '8% depression, 2% serious mental illness',
+    source: [ ['Cuijpers 2014 Am J Psychiatry', 'https://pubmed.ncbi.nlm.nih.gov/24434956/'],
+              ['Walker 2015 JAMA Psychiatry', 'https://pubmed.ncbi.nlm.nih.gov/25671328/'] ] },
+  { id:'af', group:'Health', label:'Atrial fibrillation',
+    hr: (s, x) => expectHR(s.af, 1.46, 'af', s, x), dist: (s, x) => yesNo(1.46, interp(AGE_PREV.af, x)),
+    attenFrom: Infinity,
+    value: s => s.af ? 'Yes' : 'No',
+    hrText: '1.46; if absent, the chance of developing it later is priced in', distText: 'age-dependent prevalence: 0.5% at 40, 2% at 60, 6% at 70, 10% at 80',
+    source: [ ['Odutayo 2016 BMJ', 'https://pubmed.ncbi.nlm.nih.gov/27599725/'] ] },
+  { id:'osa', group:'Health', label:'Sleep apnoea',
+    hr: s => s.osa === 'severe' ? 1.92 : s.osa === 'moderate' ? 1.15 : 1, dist: () => [ {hr:1, p:.88}, {hr:1.15, p:.08}, {hr:1.92, p:.04} ],
+    value: s => s.osa === 'severe' ? 'Severe' : s.osa === 'moderate' ? 'Mild / moderate' : 'No',
+    hrText: 'mild–moderate 1.15 (interpolated; not significant alone) · severe 1.92 — untreated; effective CPAP likely lowers it', distText: '8% mild–moderate, 4% severe',
+    source: [ ['Wang 2013 Int J Cardiol (meta-analysis)', 'https://pubmed.ncbi.nlm.nih.gov/24161531/'] ] },
+  { id:'drugs', group:'Health', label:'Opioid / stimulant dependence',
+    hr: s => s.drugs === 'current' ? 8 : 1, dist: (s, x) => yesNo(8, interp(AGE_PREV.drugs, x)),
+    attenFrom: Infinity,
+    value: s => s.drugs === 'current' ? 'Current' : 'No',
+    hrText: '8 (the pooled standardised mortality ratio is 10; 8 is used because an SMR against the whole population overstates a hazard ratio for young adults)', distText: 'age-dependent prevalence: 1.5% at 20, 1.2% at 40, 0.5% at 60, 0.1% at 75',
+    source: [ ['Larney 2020 JAMA Psychiatry', 'https://pubmed.ncbi.nlm.nih.gov/31876906/'] ] },
+  { id:'srh', group:'Health', label:'Self-rated health',
+    hr: s => ({ unk: null, excellent: 1, verygood: 1.10, good: 1.23, fair: 1.44, poor: 1.92 })[s.srh],
+    dist: () => [ {hr:1, p:.18}, {hr:1.10, p:.32}, {hr:1.23, p:.30}, {hr:1.44, p:.14}, {hr:1.92, p:.06} ],
+    value: s => s.srh === 'unk' ? 'not entered' : { excellent:'Excellent', verygood:'Very good', good:'Good', fair:'Fair', poor:'Poor' }[s.srh],
+    hrText: 'excellent 1.00 · very good 1.10 (interpolated) · good 1.23 · fair 1.44 · poor 1.92 — holds after adjustment for diagnosed illness, so it captures what the other questions miss', distText: '18% excellent, 32% very good, 30% good, 14% fair, 6% poor',
+    source: [ ['DeSalvo 2006 J Gen Intern Med (meta-analysis)', 'https://pubmed.ncbi.nlm.nih.gov/16336622/'] ] },
+  { id:'education', group:'Social', label:'Education', capGroup:'ses',
+    hr: s => Math.pow(0.981, Math.min(22, Math.max(0, s.education)) - 12),
+    dist: () => [ {hr:Math.pow(0.981,-2), p:.12}, {hr:1, p:.35}, {hr:Math.pow(0.981,2), p:.20}, {hr:Math.pow(0.981,4), p:.23}, {hr:Math.pow(0.981,6), p:.10} ],
+    value: s => `${s.education} years`,
+    hrText: '0.981 per year of schooling (1.9% per year), relative to 12 years', distText: '12% 10 yrs, 35% 12, 20% 14, 23% 16, 10% 18',
+    source: [ ['Balaj 2024 Lancet Public Health', 'https://pubmed.ncbi.nlm.nih.gov/38278172/'] ] },
+  { id:'social', group:'Social', label:'Social connection',
+    hr: s => s.social === 'isolated' ? 1.29 : s.social === 'moderate' ? 1.13 : 1,
+    dist: () => [ {hr:1, p:.60}, {hr:1.13, p:.25}, {hr:1.29, p:.15} ],
+    value: s => s.social === 'strong' ? 'Strong' : s.social === 'moderate' ? 'Moderate' : 'Isolated',
+    hrText: 'strong 1.00 · moderate 1.13 (interpolated) · isolated / lonely 1.29', distText: '60% strong, 25% moderate, 15% isolated',
+    source: [ ['Holt-Lunstad 2015 Perspect Psychol Sci', 'https://pubmed.ncbi.nlm.nih.gov/25910392/'] ] },
+  { id:'partnered', group:'Social', label:'Partnered',
+    hr: s => s.partnered ? 1 : 1.24, dist: () => [ {hr:1, p:.60}, {hr:1.24, p:.40} ],
+    value: s => s.partnered ? 'Yes' : 'No',
+    hrText: 'not married / partnered 1.24', distText: '60% partnered',
+    source: [ ['Roelfs 2011 Am J Epidemiol', 'https://pubmed.ncbi.nlm.nih.gov/21715646/'] ] },
+  { id:'parents', group:'Family', label:"Parents' longevity",
+    // Geometric mean of the two parents' HRs: Atkins found the combined effect
+    // well short of the product of two per-parent effects.
+    hr: s => Math.sqrt(parentHR(s.mother, 'F', s.country) * parentHR(s.father, 'M', s.country)),
+    dist: () => { const out = []; for (const m in PARENT_DIST) for (const f in PARENT_DIST)
+      out.push({ hr: Math.sqrt(PARENT_HR[m] * PARENT_HR[f]), p: PARENT_DIST[m] * PARENT_DIST[f] }); return out; },
+    value: s => `Mother ${parentLabel(s.mother)}, father ${parentLabel(s.father)}`,
+    hrText: 'per parent, by age reached: <70 or 70s 1.00 · 80s 0.83 · 90s 0.69 · 100+ 0.58 · a living parent gets the life-table expectation over the ages they may still reach (alive at 75 ≈ 0.80) · unknown = population average; the two combine as the geometric mean',
+    distText: 'per parent 30% < 70, 27% 70s, 28% 80s, 13% 90s, 2% 100+ (age reached)',
+    source: [ ['Atkins 2016 JACC (UK Biobank)', 'https://pubmed.ncbi.nlm.nih.gov/27539176/'],
+              ['Centenarian-offspring meta-analysis 2026', 'https://pubmed.ncbi.nlm.nih.gov/42646838/'] ] },
+  // ── Fitness & measurements (optional) ──
+  { id:'vo2max', group:'Fitness', label:'Cardiorespiratory fitness', capGroup:'fitness',
+    hr: s => s.vo2max === null ? null : vo2HR(s.vo2max, s),
+    dist: s => normalDist(interp(VO2_NORM[s.sex], s.age), 7, v => vo2HR(v, s)),
+    value: s => s.vo2max === null ? 'not entered' : `VO₂max ${s.vo2max} ml/kg/min`,
+    hrText: '0.87 per MET (3.5 ml/kg/min) above or below the age- and sex-specific norm; when entered, self-reported exercise counts at half weight', distText: 'normal around the age/sex norm (e.g. men 45: 37 ml/kg/min), SD 7',
+    source: [ ['Kodama 2009 JAMA (meta-analysis)', 'https://pubmed.ncbi.nlm.nih.gov/19454641/'] ] },
+  { id:'grip', group:'Fitness', label:'Grip strength', capGroup:'fitness',
+    hr: s => s.grip === null ? null : gripHR(s.grip, s),
+    dist: s => normalDist(interp(GRIP_NORM[s.sex], s.age), s.sex === 'M' ? 8 : 5, g => gripHR(g, s)),
+    value: s => s.grip === null ? 'not entered' : `${s.grip} kg`,
+    hrText: '1.16 per 5 kg below the age- and sex-specific norm (0.86 per 5 kg above)', distText: 'normal around the norm (e.g. men 45: 45 kg, women 45: 28 kg), SD 8 / 5',
+    source: [ ['Leong 2015 Lancet (PURE)', 'https://pubmed.ncbi.nlm.nih.gov/25982160/'] ] },
+  { id:'strength', group:'Fitness', label:'Strength training', capGroup:'fitness',
+    hr: s => ({ unk: null, none: 1, '1to2': 0.85, '3plus': 0.90 })[s.strength],
+    dist: () => [ {hr:1, p:.70}, {hr:0.85, p:.20}, {hr:0.90, p:.10} ],
+    value: s => ({ unk:'not entered', none:'None', '1to2':'1–2 sessions/week', '3plus':'3+ sessions/week' })[s.strength],
+    hrText: 'none 1.00 · 1–2 sessions (≈ 30–60 min) per week 0.85 · 3+ sessions 0.90 (J-shaped; independent of aerobic activity)', distText: '70% none, 20% 1–2, 10% 3+',
+    source: [ ['Momma 2022 Br J Sports Med (meta-analysis)', 'https://pubmed.ncbi.nlm.nih.gov/35228201/'] ] },
+  { id:'sitting', group:'Fitness', label:'Sitting time', capGroup:'fitness',
+    hr: s => s.sitting === null ? null : sitHR(s.sitting),
+    dist: () => [ {hr:sitHR(3), p:.15}, {hr:sitHR(5), p:.30}, {hr:sitHR(7), p:.30}, {hr:sitHR(9), p:.17}, {hr:sitHR(11), p:.08} ],
+    value: s => s.sitting === null ? 'not entered' : `${s.sitting} h/day`,
+    hrText: '1.01 per hour up to 8 h/day, then 1.04 per additional hour (independent of exercise)', distText: '15% ≈ 3 h, 30% ≈ 5 h, 30% ≈ 7 h, 17% ≈ 9 h, 8% ≈ 11 h',
+    source: [ ['Patterson 2018 Eur J Epidemiol (meta-analysis)', 'https://pubmed.ncbi.nlm.nih.gov/29589226/'] ] },
+  // ── Body measurements (optional) ──
+  { id:'waist', group:'Body', label:'Waist circumference', capGroup:'body',
+    hr: s => s.waist === null ? null : waistHR(s.waist, s),
+    dist: s => normalDist(WAIST_REF[s.sex], 12, w => waistHR(w, s)),
+    value: s => s.waist === null ? 'not entered' : `${Math.round(s.waist)} cm`,
+    hrText: '1.11 per 10 cm above the sex-specific median (men 95 cm, women 85 cm); independent of BMI', distText: 'normal around the median, SD 12 cm',
+    source: [ ['Jayedi 2020 BMJ (meta-analysis)', 'https://pubmed.ncbi.nlm.nih.gov/32967840/'] ] },
+  { id:'rhr', group:'Fitness', label:'Resting heart rate', capGroup:'fitness',
+    hr: s => s.rhr === null ? null : rhrHR(s.rhr),
+    dist: () => normalDist(RHR_REF, 11, r => rhrHR(r)),
+    value: s => s.rhr === null ? 'not entered' : `${s.rhr} bpm`,
+    hrText: '1.09 per 10 bpm (> 80 bpm ≈ 1.45 vs < 60)', distText: 'normal around 70 bpm, SD 11',
+    source: [ ['Zhang 2016 CMAJ (meta-analysis)', 'https://pubmed.ncbi.nlm.nih.gov/26598376/'] ] },
+  { id:'crp', group:'Body', label:'hs-CRP',
+    hr: s => s.crp === null ? null : crpHR(Math.min(20, Math.max(0.2, s.crp))),
+    dist: () => [0.5, 0.9, 1.5, 3, 6].map((c, i) => ({ hr: crpHR(c), p: [.2, .2, .2, .2, .2][i] })),
+    value: s => s.crp === null ? 'not entered' : `${s.crp} mg/L`,
+    hrText: '1.34 per 3-fold higher CRP (after adjustment for conventional risk factors), relative to a 1.5 mg/L median; clamped to 0.2–20', distText: 'log-normal around 1.5 mg/L',
+    source: [ ['Emerging Risk Factors Collaboration 2010 Lancet', 'https://pubmed.ncbi.nlm.nih.gov/20031199/'] ] },
+  // ── Diet (capped as a group) ──
+  { id:'nuts', group:'Diet', label:'Nuts', capGroup:'diet',
+    hr: s => ({ unk: null, rare: 1, weekly: 0.90, daily: 0.78 })[s.nuts],
+    dist: () => [ {hr:1, p:.55}, {hr:0.90, p:.30}, {hr:0.78, p:.15} ],
+    value: s => ({ unk:'not entered', rare:'Rarely', weekly:'A few times a week', daily:'Daily handful' })[s.nuts],
+    hrText: 'rarely 1.00 · a few times a week 0.90 · a daily handful (28 g) 0.78', distText: '55% rarely, 30% weekly, 15% daily',
+    source: [ ['Aune 2016 BMC Med (meta-analysis)', 'https://pubmed.ncbi.nlm.nih.gov/27916000/'] ] },
+  { id:'grains', group:'Diet', label:'Whole grains', capGroup:'diet',
+    hr: s => ({ unk: null, rare: 1, some: 0.92, daily: 0.83 })[s.grains],
+    dist: () => [ {hr:1, p:.40}, {hr:0.92, p:.35}, {hr:0.83, p:.25} ],
+    value: s => ({ unk:'not entered', rare:'Rarely', some:'Some days', daily:'Most meals' })[s.grains],
+    hrText: 'rarely 1.00 · some days 0.92 · three servings a day (90 g) 0.83', distText: '40% rarely, 35% some days, 25% daily',
+    source: [ ['Aune 2016 BMJ (meta-analysis)', 'https://pubmed.ncbi.nlm.nih.gov/27301975/'] ] },
+  { id:'meat', group:'Diet', label:'Processed meat', capGroup:'diet',
+    hr: s => ({ unk: null, rare: 1, weekly: 1.10, daily: 1.23 })[s.meat],
+    dist: () => [ {hr:1, p:.40}, {hr:1.10, p:.40}, {hr:1.23, p:.20} ],
+    value: s => ({ unk:'not entered', rare:'Rarely', weekly:'A few times a week', daily:'Most days' })[s.meat],
+    hrText: 'rarely 1.00 · a few times a week 1.10 (interpolated) · most days 1.23 (highest vs lowest intake)', distText: '40% rarely, 40% weekly, 20% daily',
+    source: [ ['Larsson 2014 Am J Epidemiol (meta-analysis)', 'https://pubmed.ncbi.nlm.nih.gov/24148709/'] ] },
+  { id:'sugary', group:'Diet', label:'Sugary drinks', capGroup:'diet',
+    hr: s => ({ unk: null, rare: 1, weekly: 1.06, daily: 1.14, twice: 1.21 })[s.sugary],
+    dist: () => [ {hr:1, p:.45}, {hr:1.06, p:.25}, {hr:1.14, p:.20}, {hr:1.21, p:.10} ],
+    value: s => ({ unk:'not entered', rare:'Rarely', weekly:'A few a week', daily:'One a day', twice:'Two or more a day' })[s.sugary],
+    hrText: 'rarely 1.00 · a few a week 1.06 · one a day 1.14 · two or more a day 1.21', distText: '45% rarely, 25% weekly, 20% daily, 10% twice daily',
+    source: [ ['Malik 2019 Circulation', 'https://pubmed.ncbi.nlm.nih.gov/30882235/'] ] },
+  { id:'coffee', group:'Diet', label:'Coffee',
+    hr: s => ({ unk: null, none: 1, '1to2': 0.92, '3to4': 0.83, '5plus': 0.88 })[s.coffee],
+    dist: () => [ {hr:1, p:.30}, {hr:0.92, p:.35}, {hr:0.83, p:.25}, {hr:0.88, p:.10} ],
+    value: s => ({ unk:'not entered', none:'None', '1to2':'1–2 cups/day', '3to4':'3–4 cups/day', '5plus':'5+ cups/day' })[s.coffee],
+    hrText: 'none 1.00 · 1–2 cups 0.92 · 3–4 cups 0.83 · 5+ 0.88 (observational; umbrella review of meta-analyses)', distText: '30% none, 35% 1–2, 25% 3–4, 10% 5+',
+    source: [ ['Poole 2017 BMJ (umbrella review)', 'https://pubmed.ncbi.nlm.nih.gov/29167102/'] ] },
+  // ── Work, income, environment ──
+  { id:'work', group:'Social', label:'Employment',
+    // Unemployment's excess applies during working age; from 65 everyone is scored alike.
+    hr: (s, x) => x >= 65 ? 1 : s.work === 'unemployed' ? 1.63 : 1,
+    dist: (s, x) => x >= 65 ? [ {hr:1, p:1} ] : [ {hr:1, p:.94}, {hr:1.63, p:.06} ],
+    value: s => ({ working:'Working', notworking:'Not in the workforce', unemployed:'Unemployed, seeking work' })[s.work],
+    hrText: 'unemployed and seeking work 1.63, under 65 only; retired, studying or home-making 1.00', distText: '6% unemployed (working age)',
+    source: [ ['Roelfs 2011 Soc Sci Med (meta-analysis)', 'https://pubmed.ncbi.nlm.nih.gov/21330027/'] ] },
+  { id:'income', group:'Social', label:'Household income', capGroup:'ses',
+    hr: s => ({ unk: null, low: 1.26, middle: 1.12, high: 1 })[s.income],
+    dist: () => [ {hr:1.26, p:.25}, {hr:1.12, p:.45}, {hr:1, p:.30} ],
+    value: s => ({ unk:'not entered', low:'Below half the national median', middle:'Around the median', high:'Well above the median' })[s.income],
+    hrText: 'low 1.26 · middle 1.12 (interpolated) · high 1.00 — the low-vs-high estimate after adjusting for smoking, alcohol, inactivity, obesity, blood pressure and diabetes, which are modelled separately here', distText: '25% low, 45% middle, 30% high',
+    source: [ ['Stringhini 2017 Lancet (LIFEPATH)', 'https://pubmed.ncbi.nlm.nih.gov/28159391/'] ] },
+  { id:'pm25', group:'Environment', label:'Air pollution',
+    hr: s => s.pm25 === null ? null : Math.pow(1.08, (s.pm25 - PM25_COUNTRY[s.country]) / 10),
+    dist: () => [ {hr:1, p:1} ],
+    value: s => s.pm25 === null ? 'country average' : `PM2.5 ${s.pm25} µg/m³`,
+    hrText: '1.08 per 10 µg/m³ of annual-mean PM2.5 above your country\'s average (blank = the average)', distText: 'anchored at the country mean (e.g. US 8, Korea 22 µg/m³)',
+    source: [ ['Chen & Hoek 2020 Environ Int (WHO systematic review)', 'https://pubmed.ncbi.nlm.nih.gov/32703584/'] ] },
+];
+const FACTOR_BY_ID = Object.fromEntries(FACTORS.map(f => [f.id, f]));
+function yesNo(hr, p) { return [ {hr:1, p:1 - p}, {hr, p} ]; }
+function cigLabel(c) { return c === 'lt10' ? '<10' : c === 'ge20' ? '20+' : '10–19'; }
+function parentLabel(p) {
+  if (p === 'unk') return 'unknown';
+  const band = p.slice(2), age = band === 'lt60' ? 'under 60' : band === 'lt70' ? 'under 70' : band === '100' ? '100+' : band;
+  return (p.startsWith('a_') ? 'living, ' : 'died ') + age;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Engine — pure functions, no DOM
+// ═══════════════════════════════════════════════════════════════════════════
+// Relative risks shrink with age in every source that stratifies (see methodology):
+// full strength until `from` (60 by default), halving over the next 25 years,
+// then easing to a quarter over the 15 after that.
+function atten(x, from = 60) {
+  if (x < from) return 1;
+  if (x < from + 25) return 1 - 0.5 * (x - from) / 25;
+  if (x < from + 40) return 0.5 - 0.25 * (x - from - 25) / 15;
+  return 0.25;
+}
+
+// Baseline q[0..MAX_AGE] for a country and sex. WPP gives single ages 0–99 (100+
+// is an open interval), so 100–110 come from a Gompertz line fitted to 85–99.
+const qCache = {};
+function baseQ(country, sex) {
+  const key = country + sex;
+  if (qCache[key]) return qCache[key];
+  const qx = LIFETABLES.countries[country][sex].qx;
+  const q = qx.slice(0, 100);
+  const xs = [], ys = [];
+  for (let x = 85; x <= 99; x++) { xs.push(x); ys.push(Math.log(-Math.log(1 - qx[x]))); }
+  const n = xs.length, mx = xs.reduce((a, b) => a + b) / n, my = ys.reduce((a, b) => a + b) / n;
+  let sxy = 0, sxx = 0;
+  for (let i = 0; i < n; i++) { sxy += (xs[i] - mx) * (ys[i] - my); sxx += (xs[i] - mx) ** 2; }
+  const b = sxy / sxx, a = my - b * mx;
+  for (let x = 100; x <= MAX_AGE; x++) q[x] = Math.min(1, 1 - Math.exp(-Math.exp(a + b * x)));
+  q[MAX_AGE] = 1;
+  return (qCache[key] = q);
+}
+
+function bandIndex(x) {
+  const bands = LIFETABLES.bands;
+  for (let i = 0; i < bands.length; i++) if (x >= bands[i][0] && x <= bands[i][1]) return i;
+  return bands.length - 1;
+}
+
+// The multiplier a factor contributes at age x: the person's attenuated HR over
+// the prevalence-weighted mean attenuated HR of the reference population.
+function factorMult(f, s, x) {
+  const raw = f.hr(s, x);
+  if (raw === null) return 1;            // not entered = population average
+  const a = atten(x, f.attenFrom);
+  const own = Math.pow(raw, a);
+  let mean = 0;
+  for (const c of f.dist(s, x)) mean += c.p * Math.pow(c.hr, a);
+  return own / mean;
+}
+
+// Adjusted q[] from the person's current age. opts.neutral: Set of factor ids
+// forced to the population average (multiplier 1); opts.baseline: all of them.
+// The combined multiplier is capped at MAX_MULT: the proportional-hazards
+// assumption has been tested up to about 8× (three cardiometabolic diseases,
+// Di Angelantonio 2015) and nothing supports stacking beyond that.
+// Returns the array with a `capped` property when the cap bound at any age.
+function adjustedQ(s, opts = {}) {
+  const q0 = baseQ(s.country, s.sex);
+  const r = LIFETABLES.countries[s.country][s.sex].r;
+  const q = new Array(MAX_AGE + 1).fill(0);
+  q.capped = false; q.compressed = false;
+  for (let x = s.age; x <= MAX_AGE; x++) {
+    if (q0[x] >= 1) { q[x] = 1; continue; }
+    let mu = -Math.log(1 - q0[x]);
+    if (s.improve) mu *= Math.exp(-r[bandIndex(x)] * (BASE_YR - LIFETABLES.baseYear + (x - s.age)));
+    if (!opts.baseline) {
+      let m = 1;
+      const groups = {};
+      for (const f of FACTORS) {
+        if (opts.neutral && opts.neutral.has(f.id)) continue;
+        let fm = factorMult(f, s, x);
+        // Measured fitness is what self-reported exercise was standing in for:
+        // when VO2max is entered, the exercise answer counts at half weight.
+        if (f.id === 'activity' && s.vo2max !== null) fm = Math.sqrt(fm);
+        if (f.capGroup) groups[f.capGroup] = (groups[f.capGroup] || 1) * fm;
+        else m *= fm;
+      }
+      for (const g in groups) m *= opts.nocap ? groups[g] : Math.min(GROUP_CAPS[g], Math.max(1 / GROUP_CAPS[g], groups[g]));
+      if (!opts.nocap && m > MAX_MULT) { m = MAX_MULT; q.capped = true; }
+      if (!opts.nocap && m < SOFT_FROM) { m = SOFT_FROM * Math.sqrt(m / SOFT_FROM); q.compressed = true; }
+      if (!opts.nocap && m < MIN_MULT) { m = MIN_MULT; q.capped = true; }
+      mu *= m;
+    }
+    q[x] = 1 - Math.exp(-mu);
+  }
+  return q;
+}
+
+// Survival S[x] = P(alive at exact age x | alive at s.age), x = age..MAX_AGE+1
+function survival(q, age) {
+  const S = new Array(MAX_AGE + 2).fill(0);
+  S[age] = 1;
+  for (let x = age; x <= MAX_AGE; x++) S[x + 1] = S[x] * (1 - q[x]);
+  return S;
+}
+function lifeExp(S, age) { let t = 0; for (let x = age + 1; x <= MAX_AGE + 1; x++) t += S[x]; return age + t + 0.5; }
+function ageAtPct(S, age, pct) {   // age by which (1 - pct) have died, i.e. S = pct
+  for (let x = age; x <= MAX_AGE; x++) {
+    if (S[x + 1] <= pct) { const f = (S[x] - pct) / (S[x] - S[x + 1] || 1); return x + f; }
+  }
+  return MAX_AGE + 1;
+}
+
+function summarize(s, opts) {
+  const q = adjustedQ(s, opts), S = survival(q, s.age);
+  return { q, S, capped: q.capped, compressed: q.compressed, le: lifeExp(S, s.age), median: ageAtPct(S, s.age, 0.5),
+    p10: ageAtPct(S, s.age, 0.9), p25: ageAtPct(S, s.age, 0.75), p75: ageAtPct(S, s.age, 0.25), p90: ageAtPct(S, s.age, 0.1),
+    reach: n => n <= s.age ? 1 : n > MAX_AGE + 1 ? 0 : S[n] };
+}
+
+// One-at-a-time contributions vs the national average, plus the interaction residual.
+// When a cap or group cap is binding, resetting a single factor may not move the
+// capped total at all, so the attribution is done with the caps off and then
+// scaled to the capped total: bars keep their relative sizes and still reconcile.
+function contributions(s, full) {
+  const base = summarize(s, { baseline: true }).le;
+  const uncapped = summarize(s, { nocap: true });
+  const altered = full.capped || full.compressed;
+  const ref = altered ? uncapped.le : full.le, opt = altered ? { nocap: true } : {};
+  const rows = FACTORS.map(f => ({ id: f.id, label: f.label, value: f.value(s),
+    years: ref - summarize(s, { ...opt, neutral: new Set([f.id]) }).le }));
+  const sum = rows.reduce((a, r) => a + r.years, 0);
+  let interaction = ref - base - sum;
+  if (altered) {
+    const scale = (ref - base) ? (full.le - base) / (ref - base) : 1;
+    rows.forEach(r => r.years *= scale); interaction *= scale;
+  }
+  return { rows, base, total: full.le - base, interaction, scaled: altered };
+}
+
+// ── What-if scenarios ──────────────────────────────────────────────────────
+const WHATIFS = [
+  { id:'quitSmoking', label:'Quit smoking today', applies: s => s.smoke === 'current',
+    apply: s => ({ ...s, smoke:'former', quitYears:0 }) },
+  { id:'healthyBmi', label:'Reach a healthy weight (BMI 24)', applies: s => bmiOf(s) >= 25 || bmiOf(s) < 18.5,
+    apply: s => ({ ...s, weight: +(24 * (s.height / 100) ** 2).toFixed(1) }) },
+  { id:'activity', label:'Exercise 150 min/week', applies: s => s.activity < 150, apply: s => ({ ...s, activity:150 }) },
+  { id:'alcohol', label:'Cut alcohol to 7 drinks/week', applies: s => s.alcohol > 7, apply: s => ({ ...s, alcohol:7 }) },
+  { id:'diet', label:'Eat 5 servings of fruit & veg a day', applies: s => s.fruitveg < 5, apply: s => ({ ...s, fruitveg:5 }) },
+  { id:'sleep', label:'Sleep 7–8 hours', applies: s => s.sleep < 7 || s.sleep >= 9, apply: s => ({ ...s, sleep:7.5 }) },
+  { id:'bp', label:'Bring blood pressure under 130', applies: s => s.sbp >= 130, apply: s => ({ ...s, sbp:125 }) },
+  { id:'social', label:'Build stronger social ties', applies: s => s.social !== 'strong', apply: s => ({ ...s, social:'strong' }) },
+  { id:'strength', label:'Add 1–2 strength sessions a week', applies: s => s.strength === 'none', apply: s => ({ ...s, strength:'1to2' }) },
+  { id:'sitting', label:'Sit less than 8 hours a day', applies: s => s.sitting !== null && s.sitting > 8, apply: s => ({ ...s, sitting:7 }) },
+  { id:'nuts', label:'Eat a handful of nuts most days', applies: s => s.nuts === 'rare' || s.nuts === 'weekly', apply: s => ({ ...s, nuts:'daily' }) },
+  { id:'grains', label:'Switch to whole grains', applies: s => s.grains === 'rare' || s.grains === 'some', apply: s => ({ ...s, grains:'daily' }) },
+  { id:'meat', label:'Cut processed meat to rarely', applies: s => s.meat === 'weekly' || s.meat === 'daily', apply: s => ({ ...s, meat:'rare' }) },
+  { id:'sugary', label:'Cut sugary drinks to rarely', applies: s => ['weekly', 'daily', 'twice'].includes(s.sugary), apply: s => ({ ...s, sugary:'rare' }) },
+];
+function applyWhatIfs(s, ids) {
+  let t = s;
+  for (const w of WHATIFS) if (ids.has(w.id) && w.applies(s)) t = w.apply(t);
+  return t;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  State
+// ═══════════════════════════════════════════════════════════════════════════
+// Optional inputs default to null ("not entered" = population average) or to
+// 'unk' for selects, so a fresh page scores exactly as it did before they existed.
+const DEFAULTS = {
+  country:'USA', sex:'M', age:40, units:'metric', height:175, weight:80, sbp:120,
+  waist:null, rhr:null, vo2max:null, grip:null, crp:null, srh:'unk',
+  smoke:'never', cigs:'lt10', quitYears:5, activity:150, strength:'unk', sitting:null, alcohol:3, sleep:7,
+  fruitveg:3, nuts:'unk', grains:'unk', meat:'unk', sugary:'unk', coffee:'unk',
+  diabetes:'none', cvd:false, af:false, copd:'none', ckd:'none', mental:'none', osa:'none', drugs:'none',
+  education:14, income:'unk', work:'working', social:'strong', partnered:true, mother:'unk', father:'unk',
+  pm25:null, improve:false,
+};
+const OPTIONAL_NUM = { waist:[50, 200], rhr:[35, 140], vo2max:[10, 90], grip:[5, 90], crp:[0.1, 50], sitting:[0, 18], pm25:[0, 150] };
+let state = { ...DEFAULTS };
+let whatif = new Set();
+const KEYS = Object.keys(DEFAULTS);
+
+// ── Hash (shareable link) ──────────────────────────────────────────────────
+// Hand-rolled rather than URLSearchParams so the link stays readable. Every
+// value read back is validated against DEFAULTS' type and the select options.
+const HASH_KEYS = { country:'c', sex:'s', age:'a', units:'u', height:'h', weight:'w', sbp:'bp',
+  waist:'wc', rhr:'rh', vo2max:'vo', grip:'gr', crp:'cr', srh:'sr',
+  smoke:'sm', cigs:'ci', quitYears:'qy', activity:'ac', strength:'st', sitting:'si', alcohol:'al', sleep:'sl',
+  fruitveg:'fv', nuts:'nu', grains:'wg', meat:'pm', sugary:'sd', coffee:'cf',
+  diabetes:'dm', cvd:'cv', af:'af', copd:'cp', ckd:'ck', mental:'mh', osa:'os', drugs:'dr',
+  education:'ed', income:'in', work:'wk', social:'so', partnered:'pa', mother:'mo', father:'fa',
+  pm25:'pa2', improve:'im' };
+const CHOICES = { sex:['M','F'], units:['metric','imperial'], smoke:['never','former','current','cigar'],
+  cigs:['lt10','10to19','ge20'], strength:['unk','none','1to2','3plus'], srh:['unk','excellent','verygood','good','fair','poor'],
+  nuts:['unk','rare','weekly','daily'], grains:['unk','rare','some','daily'], meat:['unk','rare','weekly','daily'],
+  sugary:['unk','rare','weekly','daily','twice'], coffee:['unk','none','1to2','3to4','5plus'],
+  diabetes:['none','pre','yes'], copd:['none','moderate','severe'], ckd:['none','stage3','stage45'],
+  mental:['none','depression','smi'], osa:['none','moderate','severe'], drugs:['none','current'],
+  income:['unk','low','middle','high'], work:['working','notworking','unemployed'],
+  social:['strong','moderate','isolated'], mother:PARENT_CODES, father:PARENT_CODES };
+function stateToHash() {
+  const parts = [];
+  for (const k of KEYS) {
+    const v = state[k];
+    if (v === DEFAULTS[k]) continue;
+    parts.push(HASH_KEYS[k] + '=' + (typeof v === 'boolean' ? (v ? 1 : 0) : v));
+  }
+  if (whatif.size) parts.push('wi=' + WHATIFS.filter(w => whatif.has(w.id)).map(w => w.id).join(','));
+  return parts.join('&');
+}
+function hashParams(h) {
+  const out = {};
+  h.replace(/^#/, '').split('&').forEach(kv => {
+    const i = kv.indexOf('=');
+    if (i > 0) out[kv.slice(0, i)] = kv.slice(i + 1);
+  });
+  return out;
+}
+function applyHash(h) {
+  if (!h.replace(/^#/, '')) return false;
+  const p = hashParams(h);
+  const next = { ...DEFAULTS };
+  for (const k of KEYS) {
+    const raw = p[HASH_KEYS[k]];
+    if (raw === undefined) continue;
+    const d = DEFAULTS[k];
+    if (typeof d === 'boolean') next[k] = raw === '1';
+    else if (typeof d === 'number' || k in OPTIONAL_NUM) { const v = parseFloat(raw); if (isFinite(v)) next[k] = v; }
+    else if (k === 'country') { if (LIFETABLES.countries[raw]) next[k] = raw; }
+    else if (CHOICES[k] && CHOICES[k].includes(raw)) next[k] = raw;
+  }
+  state = clampState(next);
+  whatif = new Set((p.wi || '').split(',').filter(id => WHATIFS.some(w => w.id === id)));
+  return true;
+}
+function clampState(s) {
+  const c = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  s.age = Math.round(c(s.age, 18, 100)); s.height = c(s.height, 120, 230); s.weight = c(s.weight, 30, 300);
+  s.sbp = c(s.sbp, 90, 220); s.quitYears = c(s.quitYears, 0, 80); s.activity = c(s.activity, 0, 2000);
+  s.alcohol = c(s.alcohol, 0, 80); s.fruitveg = c(s.fruitveg, 0, 12); s.sleep = c(s.sleep, 3, 12);
+  s.education = c(s.education, 0, 24);
+  for (const k in OPTIONAL_NUM) s[k] = s[k] === null || !isFinite(s[k]) ? null : c(s[k], OPTIONAL_NUM[k][0], OPTIONAL_NUM[k][1]);
+  return s;
+}
+let urlTimer = null;
+function syncURL(now) {
+  clearTimeout(urlTimer);
+  const write = () => history.replaceState(null, '', '#' + stateToHash());
+  if (now) write(); else urlTimer = setTimeout(write, 250);
+}
+function copyLink() {
+  syncURL(true);
+  const btn = document.getElementById('copyBtn'), old = 'Copy link';
+  const done = t => { btn.textContent = t; setTimeout(() => btn.textContent = old, 1600); };
+  if (navigator.clipboard) navigator.clipboard.writeText(location.href).then(() => done('Copied'), () => done('⌘C to copy'));
+  else done('⌘C to copy');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  UI
+// ═══════════════════════════════════════════════════════════════════════════
+const $ = id => document.getElementById(id);
+const fmt1 = v => (Math.round(v * 10) / 10).toFixed(1);
+const fmtPct = v => Math.round(v * 100) + '%';
+// Sign follows the rounded value, so −0.03 reads "0.0", not "−0.0".
+const signed = v => { const r = Math.round(v * 10) / 10; return (r > 0 ? '+' : r < 0 ? '−' : '') + fmt1(Math.abs(r)); };
+const deltaClass = v => Math.abs(v) < 0.05 ? 'delta-zero' : v > 0 ? 'delta-pos' : 'delta-neg';
+const escapeHtml = s => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+
+function ink() {
+  const cs = getComputedStyle(document.documentElement);
+  const v = n => cs.getPropertyValue(n).trim();
+  return { you: v('--chart-you'), improved: v('--chart-improved'), avg: v('--chart-avg'),
+    gain: v('--chart-gain'), loss: v('--chart-loss'), grid: v('--chart-grid'),
+    text: v('--text'), muted: v('--muted'), surface: v('--surface') };
+}
+
+// Imperial ↔ metric. State is always metric; the imperial inputs are a view.
+const CM_PER_IN = 2.54, KG_PER_LB = 0.45359237;
+function syncControls() {
+  $('inCountry').value = state.country;
+  document.querySelectorAll('.mode-btn[data-key]').forEach(b => b.setAttribute('aria-pressed', String(state[b.dataset.key] === b.dataset.val)));
+  $('inAge').value = state.age; $('ageOut').textContent = state.age;
+  const imp = state.units === 'imperial';
+  $('fHeightM').hidden = imp; $('fHeightI').hidden = !imp;
+  $('inHeight').value = Math.round(state.height);
+  const totIn = Math.round(state.height / CM_PER_IN);
+  $('inFeet').value = Math.floor(totIn / 12); $('inInches').value = totIn % 12;
+  $('inWeight').value = imp ? Math.round(state.weight / KG_PER_LB) : state.weight;
+  $('inWeight').min = imp ? 66 : 30; $('inWeight').max = imp ? 660 : 300; $('inWeight').step = imp ? 1 : 0.5;
+  $('weightUnit').textContent = imp ? 'lb' : 'kg';
+  $('inSbp').value = state.sbp;
+  // Optional numerics: blank means "not entered"
+  const opt = (id, v) => { $(id).value = v === null ? '' : v; };
+  opt('inWaist', state.waist === null ? null : imp ? Math.round(state.waist / CM_PER_IN) : Math.round(state.waist));
+  $('waistUnit').textContent = imp ? 'in' : 'cm';
+  opt('inRhr', state.rhr); opt('inVo2', state.vo2max); opt('inGrip', state.grip); opt('inCrp', state.crp);
+  opt('inSitting', state.sitting); opt('inPm25', state.pm25);
+  $('inPm25').placeholder = `country average ≈ ${PM25_COUNTRY[state.country]}`;
+  $('inSrh').value = state.srh;
+  $('inSmoke').value = state.smoke; $('inCigs').value = state.cigs; $('inQuit').value = state.quitYears;
+  $('fCigs').hidden = state.smoke === 'never' || state.smoke === 'cigar'; $('fQuit').hidden = state.smoke !== 'former';
+  $('inActivity').value = state.activity; $('inStrength').value = state.strength; $('inAlcohol').value = state.alcohol;
+  $('inFruitveg').value = state.fruitveg; $('inSleep').value = state.sleep;
+  $('inNuts').value = state.nuts; $('inGrains').value = state.grains; $('inMeat').value = state.meat;
+  $('inSugary').value = state.sugary; $('inCoffee').value = state.coffee;
+  document.querySelectorAll('input[type=checkbox][data-key]').forEach(c => c.checked = !!state[c.dataset.key]);
+  $('inDiabetes').value = state.diabetes; $('inCopd').value = state.copd; $('inCkd').value = state.ckd;
+  $('inMental').value = state.mental; $('inOsa').value = state.osa; $('inDrugs').value = state.drugs;
+  $('inEducation').value = state.education; $('inIncome').value = state.income; $('inWork').value = state.work;
+  $('inSocial').value = state.social;
+  $('inMother').value = state.mother; $('inFather').value = state.father;
+}
+
+function onInput(e) {
+  const el = e.target, k = el.dataset.key;
+  if (!k) return;
+  if (el.type === 'checkbox') state[k] = el.checked;
+  else if (k === 'feet' || k === 'inches') {
+    const ft = parseFloat($('inFeet').value), inch = parseFloat($('inInches').value);
+    if (isFinite(ft) && isFinite(inch)) state.height = (ft * 12 + inch) * CM_PER_IN;
+  }
+  else if (k === 'weight') { const v = parseFloat(el.value); if (isFinite(v)) state.weight = state.units === 'imperial' ? v * KG_PER_LB : v; }
+  else if (k === 'waist') { const v = parseFloat(el.value); state.waist = isFinite(v) ? (state.units === 'imperial' ? v * CM_PER_IN : v) : null; }
+  else if (k in OPTIONAL_NUM) { const v = parseFloat(el.value); state[k] = isFinite(v) ? v : null; }   // blank clears it
+  else if (el.type === 'number' || el.type === 'range') { const v = parseFloat(el.value); if (isFinite(v)) state[k] = v; }
+  else state[k] = el.value;
+  clampState(state);
+  if (k === 'smoke' || k === 'age' || k === 'country') syncControls();  // reveal/hide dependent fields, update readouts
+  if (k === 'age') $('ageOut').textContent = state.age;
+  refreshAll();
+}
+function onModeBtn(e) {
+  const b = e.currentTarget, k = b.dataset.key;
+  if (state[k] === b.dataset.val) return;
+  state[k] = b.dataset.val;
+  syncControls();
+  refreshAll();
+}
+function resetAll() { state = { ...DEFAULTS }; whatif = new Set(); syncControls(); refreshAll(); }
+function toggleTheme() {
+  const t = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = t;
+  localStorage.setItem('lifex-theme', t);
+  syncThemeBtn();
+  refreshAll(); // charts re-render with the new mode's inks
+}
+function syncThemeBtn() {
+  const light = document.documentElement.dataset.theme === 'light';
+  $('themeBtn').textContent = light ? '☾ Dark' : '☀ Light';
+}
+
+// ── Charts ─────────────────────────────────────────────────────────────────
+// Vertical reference lines with a label, driven by options.plugins.markers.items
+const markerPlugin = { id: 'markers', afterDatasetsDraw(chart) {
+  const items = (chart.options.plugins.markers || {}).items || [];
+  const { ctx, chartArea: { top, bottom }, scales: { x } } = chart;
+  items.forEach((m, i) => {
+    const px = x.getPixelForValue(m.x);
+    if (!isFinite(px) || px < chart.chartArea.left || px > chart.chartArea.right) return;
+    ctx.save();
+    ctx.strokeStyle = m.color; ctx.lineWidth = 1; ctx.setLineDash(m.dash || []);
+    ctx.beginPath(); ctx.moveTo(px, top); ctx.lineTo(px, bottom); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = m.text; ctx.font = '600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText(m.label, px, top + 4 + (m.row || 0) * 13);
+    ctx.restore();
+  });
+} };
+// Signed value labels at the tip of horizontal bars, in text ink (never the bar colour).
+// The labels are precomputed strings: Chart.js treats any function inside plugin
+// options as a scriptable option and calls it itself, so a `format` callback here
+// would come back as a string and the draw would throw — taking every later
+// render in refreshAll down with it.
+const barLabelPlugin = { id: 'barLabels', afterDatasetsDraw(chart) {
+  const o = chart.options.plugins.barLabels;
+  if (!o || !o.labels) return;
+  const { ctx } = chart, meta = chart.getDatasetMeta(0), zero = chart.scales.x.getPixelForValue(0);
+  ctx.save();
+  ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  ctx.fillStyle = o.color; ctx.textBaseline = 'middle';
+  meta.data.forEach((bar, i) => {
+    const v = chart.data.datasets[0].data[i];
+    const right = v >= 0;
+    ctx.textAlign = right ? 'left' : 'right';
+    ctx.fillText(o.labels[i], (right ? Math.max(bar.x, zero) : Math.min(bar.x, zero)) + (right ? 6 : -6), bar.y);
+  });
+  ctx.restore();
+} };
+if (typeof Chart !== 'undefined') Chart.register(markerPlugin, barLabelPlugin);
+
+const charts = {};
+function baseOptions(c) {
+  return { responsive: true, maintainAspectRatio: false, animation: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { display: false },
+      tooltip: { backgroundColor: c.surface, titleColor: c.text, bodyColor: c.text, borderColor: c.grid, borderWidth: 1,
+        padding: 10, titleFont: { weight: '700' } } },
+    scales: {
+      x: { type: 'linear', grid: { color: c.grid, drawTicks: false }, border: { display: false },
+           ticks: { color: c.muted, font: { size: 11 }, maxTicksLimit: 12 } },
+      y: { grid: { color: c.grid, drawTicks: false }, border: { display: false }, ticks: { color: c.muted, font: { size: 11 } } } } };
+}
+
+function renderSurvival(full, base, imp) {
+  const c = ink(), a = state.age;
+  const pts = S => { const out = []; for (let x = a; x <= MAX_AGE + 1; x++) out.push({ x, y: S[x] }); return out; };
+  const datasets = [
+    { label: 'National average', data: pts(base.S), borderColor: c.avg, borderWidth: 2, pointRadius: 0, tension: 0.2, order: 3 },
+    { label: 'You', data: pts(full.S), borderColor: c.you, borderWidth: 2.5, pointRadius: 0, tension: 0.2, order: 2 },
+  ];
+  if (imp) datasets.push({ label: 'What-if scenario', data: pts(imp.S), borderColor: c.improved, borderWidth: 2, borderDash: [6, 4], pointRadius: 0, tension: 0.2, order: 1 });
+  // Median markers: one filled dot per series where S crosses 50%, with a surface ring.
+  const medDots = [ { x: base.median, y: 0.5, color: c.avg }, { x: full.median, y: 0.5, color: c.you } ];
+  if (imp) medDots.push({ x: imp.median, y: 0.5, color: c.improved });
+  datasets.push({ label: 'Median age at death', data: medDots.map(d => ({ x: d.x, y: d.y })), showLine: false,
+    pointRadius: 5, pointHoverRadius: 6, pointBackgroundColor: medDots.map(d => d.color), pointBorderColor: c.surface, pointBorderWidth: 2, order: 0 });
+  const opts = baseOptions(c);
+  opts.scales.x.min = a; opts.scales.x.max = MAX_AGE + 1; opts.scales.x.title = { display: true, text: 'Age', color: c.muted, font: { size: 11 } };
+  opts.scales.y.min = 0; opts.scales.y.max = 1; opts.scales.y.ticks.callback = v => Math.round(v * 100) + '%';
+  opts.plugins.markers = { items: [80, 90, 100].filter(m => m > a).map((m, i) => ({ x: m, label: `${m}: ${fmtPct(full.reach(m))}`, color: c.grid, text: c.muted, row: 0 })) };
+  opts.plugins.tooltip.callbacks = { title: items => `Age ${items[0].parsed.x}`,
+    label: item => item.dataset.showLine === false ? null : ` ${item.dataset.label}: ${fmtPct(item.parsed.y)} alive`,
+    filter: item => item.dataset.showLine !== false };
+  drawChart('chSurv', { type: 'line', data: { datasets }, options: opts });
+  $('legSurv').innerHTML = `<span><i style="border-color:${c.you}"></i>You</span><span><i style="border-color:${c.avg}"></i>National average (your age &amp; sex)</span>`
+    + (imp ? `<span><i class="dash" style="border-color:${c.improved}"></i>What-if scenario</span>` : '')
+    + `<span><i class="sw" style="background:${c.you};border-radius:50%;width:9px;height:9px"></i>Median age at death</span>`;
+  // Table twin, every 5 years
+  let rows = '<tr><th>Age</th><th class="num">National average</th><th class="num">You</th>' + (imp ? '<th class="num">What-if</th>' : '') + '</tr>';
+  for (let x = Math.ceil(a / 5) * 5; x <= MAX_AGE; x += 5) {
+    if (x <= a) continue;
+    rows += `<tr><td>${x}</td><td class="num">${fmtPct(base.S[x])}</td><td class="num">${fmtPct(full.S[x])}</td>` + (imp ? `<td class="num">${fmtPct(imp.S[x])}</td>` : '') + '</tr>';
+  }
+  $('tblSurv').innerHTML = rows;
+}
+
+function renderTornado(contrib) {
+  const c = ink();
+  const rows = contrib.rows.slice().sort((p, q) => Math.abs(q.years) - Math.abs(p.years));
+  const items = rows.map(r => ({ label: r.label, v: r.years, shown: r.years, color: r.years >= 0 ? c.gain : c.loss }));
+  // The axis is scaled to the factors; the interaction bar, which can be large
+  // when many favourable factors compound, is clipped to the edge but labelled
+  // with its true value so it never squashes the bars that matter.
+  const lim = Math.max(1, ...items.map(i => Math.abs(i.v))) * 1.35;
+  const inter = contrib.interaction;
+  items.push({ label: 'Interaction', v: inter, shown: Math.max(-lim * 0.97, Math.min(lim * 0.97, inter)), color: c.avg });
+  const opts = baseOptions(c);
+  opts.indexAxis = 'y';
+  opts.interaction = { mode: 'nearest', axis: 'y', intersect: false };
+  opts.scales.x = { grid: { color: c.grid, drawTicks: false }, border: { display: false },
+    ticks: { color: c.muted, font: { size: 11 }, callback: v => signed(v) + ' y' } };
+  opts.scales.y = { type: 'category', grid: { display: false }, border: { display: false }, ticks: { color: c.text, font: { size: 11 }, autoSkip: false } };
+  opts.scales.x.min = -lim; opts.scales.x.max = lim;
+  const labels = items.map(i => signed(i.v) + ' y' + (i.shown !== i.v ? ' (off scale)' : ''));
+  opts.plugins.barLabels = { color: c.text, labels };
+  opts.plugins.tooltip.callbacks = { label: item => ' ' + labels[item.dataIndex] };
+  // 35 factors: let the chart grow with the row count rather than cramming them
+  $('chTornado').parentElement.style.height = (items.length * 21 + 60) + 'px';
+  drawChart('chTornado', { type: 'bar', data: { labels: items.map(i => i.label),
+    datasets: [{ data: items.map(i => i.shown), backgroundColor: items.map(i => i.color), borderRadius: 4, borderSkipped: 'start', maxBarThickness: 14, categoryPercentage: 0.8, barPercentage: 0.9 }] },
+    options: opts });
+  let html = '<tr><th>Factor</th><th>You</th><th class="num">Years</th></tr>';
+  for (const r of rows) html += `<tr><td>${r.label}</td><td>${escapeHtml(r.value)}</td><td class="num ${Math.abs(r.years) < 0.05 ? '' : r.years > 0 ? 'pos' : 'neg'}">${signed(r.years)}</td></tr>`;
+  html += `<tr><td>Interaction</td><td><span class="hint">factors multiply, so the bars don't sum exactly</span></td><td class="num">${signed(contrib.interaction)}</td></tr>`;
+  html += `<tr><td><b>Total vs average</b></td><td></td><td class="num ${deltaClass(contrib.total).replace('delta-', '')}"><b>${signed(contrib.total)}</b></td></tr>`;
+  $('tblTornado').innerHTML = html;
+}
+
+function renderDist(full) {
+  const c = ink(), a = state.age, S = full.S;
+  const pts = [];
+  for (let x = a; x <= MAX_AGE; x++) pts.push({ x, y: S[x] - S[x + 1] });
+  const opts = baseOptions(c);
+  opts.interaction = { mode: 'nearest', axis: 'x', intersect: false };
+  opts.scales.x.min = a; opts.scales.x.max = MAX_AGE + 1; opts.scales.x.offset = false;
+  opts.scales.x.title = { display: true, text: 'Age at death', color: c.muted, font: { size: 11 } };
+  opts.scales.y.ticks.callback = v => (v * 100).toFixed(1) + '%';
+  opts.scales.y.beginAtZero = true;
+  const pctItems = [ ['P10', full.p10], ['Median', full.median], ['P90', full.p90] ];
+  opts.plugins.markers = { items: pctItems.map(([l, v], i) => ({ x: v, label: `${l} ${fmt1(v)}`, color: c.muted, text: c.text, dash: [3, 3], row: 0 })) };
+  opts.plugins.tooltip.callbacks = { title: items => `Dies at age ${items[0].parsed.x}`, label: item => ` ${(item.parsed.y * 100).toFixed(1)}% of people like you` };
+  drawChart('chDist', { type: 'bar', data: { datasets: [{ data: pts, backgroundColor: c.you, borderRadius: 2, borderSkipped: 'bottom', barPercentage: 1, categoryPercentage: 0.8, maxBarThickness: 14 }] }, options: opts });
+  $('pctTiles').innerHTML = [ ['10% die before', full.p10], ['25% die before', full.p25], ['Half die before', full.median], ['75% die before', full.p75], ['90% die before', full.p90], ['Mean (life expectancy)', full.le] ]
+    .map(([l, v]) => `<div class="tile"><div class="tile-label">${l}</div><div class="tile-value">${fmt1(v)}</div></div>`).join('');
+  let html = '<tr><th>Age band</th><th class="num">Chance of dying in it</th></tr>';
+  for (let x = Math.floor(a / 5) * 5; x <= MAX_AGE; x += 5) {
+    let p = 0; for (let k = Math.max(x, a); k < x + 5 && k <= MAX_AGE; k++) p += S[k] - S[k + 1];
+    html += `<tr><td>${Math.max(x, a)}–${Math.min(x + 4, MAX_AGE)}</td><td class="num">${(p * 100).toFixed(1)}%</td></tr>`;
+  }
+  $('tblDist').innerHTML = html;
+}
+
+function drawChart(id, cfg) {
+  const canvas = $(id);
+  if (!canvas) return;
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(canvas.getContext('2d'), cfg);
+}
+
+// ── Panels ─────────────────────────────────────────────────────────────────
+function renderHero(full, base, contrib, imp, periodLE) {
+  const name = LIFETABLES.countries[state.country].name, sexWord = state.sex === 'M' ? 'man' : 'woman';
+  $('heroLE').textContent = fmt1(full.le);
+  const d = full.le - base.le;
+  const lines = [
+    `<span>National average for a <b>${state.age}-year-old ${sexWord}</b> in <b>${name}</b>: <b>${fmt1(base.le)}</b> · you: <span class="${deltaClass(d)}">${signed(d)} years</span></span>`,
+    `<span>Half of people like you will live past <b>${fmt1(full.median)}</b>; one in ten past <b>${fmt1(full.p90)}</b>. Chance of reaching 90: <b>${fmtPct(full.reach(90))}</b></span>`,
+  ];
+  if (state.improve) lines.push(`<span>Includes UN-projected mortality improvement: <span class="delta-pos">+${fmt1(full.le - periodLE)} years</span> over today's death rates.</span>`);
+  else lines.push(`<span>Assumes today's death rates for the rest of your life. Tick <b>Mortality keeps improving</b> in the sidebar for the cohort figure.</span>`);
+  if (imp) lines.push(`<span>With the ticked changes: <b>${fmt1(imp.le)}</b> <span class="delta-pos">(+${fmt1(imp.le - full.le)})</span></span>`);
+  $('heroSide').innerHTML = lines.join('');
+  $('hsLE').textContent = fmt1(full.le);
+  $('hsDelta').textContent = signed(d) + ' y'; $('hsDelta').className = 'hstat-value ' + deltaClass(d);
+  $('hsMedian').textContent = fmt1(full.median);
+  $('hsP90').textContent = fmtPct(full.reach(90));
+}
+function renderTiles(full, base) {
+  $('tiles').innerHTML = [70, 80, 90, 100].filter(m => m > state.age).map(m => {
+    const d = full.reach(m) - base.reach(m);
+    return `<div class="tile"><div class="tile-label">Reach ${m}</div><div class="tile-value">${fmtPct(full.reach(m))}</div>
+      <div class="tile-sub">average <b>${fmtPct(base.reach(m))}</b> · <span class="${deltaClass(d * 100)}">${(d >= 0 ? '+' : '−') + Math.abs(Math.round(d * 100))} pts</span></div></div>`;
+  }).join('') || '<div class="hint">You have already passed every milestone this panel tracks.</div>';
+}
+function renderWhatIf(full, imp) {
+  const applicable = WHATIFS.filter(w => w.applies(state));
+  if (!applicable.length) {
+    $('whatifList').innerHTML = '<div class="note-box">Every modifiable factor is already at or beyond its target — there is no single change left to test here.</div>';
+    $('whatifTotal').innerHTML = ''; $('whatifNote').innerHTML = '';
+    return;
+  }
+  $('whatifList').innerHTML = applicable.map(w => {
+    const alone = summarize(w.apply(state)).le - full.le;
+    return `<div class="whatif-item"><label><input type="checkbox" data-wi="${w.id}" ${whatif.has(w.id) ? 'checked' : ''}> ${w.label}</label>
+      <span class="gain ${alone < 0.05 ? 'zero' : ''}">${alone < 0.05 ? '< 0.1' : '+' + fmt1(alone)} y</span></div>`;
+  }).join('');
+  document.querySelectorAll('input[data-wi]').forEach(el => el.addEventListener('change', e => {
+    if (e.target.checked) whatif.add(e.target.dataset.wi); else whatif.delete(e.target.dataset.wi);
+    refreshAll();
+  }));
+  if (imp) {
+    $('whatifTotal').innerHTML = `Together, the ticked changes take your life expectancy from <b>${fmt1(full.le)}</b> to <b>${fmt1(imp.le)}</b><span class="big">+${fmt1(imp.le - full.le)} y</span>`;
+  } else $('whatifTotal').innerHTML = 'Tick one or more changes to see their combined effect and the dashed scenario line on the survival curve.';
+  $('whatifNote').innerHTML = '<b>Why individual gains don\'t add up:</b> each line is the gain from that change alone. Applied together, the factors multiply, and a later change works on a lower remaining risk, so the total is a little less than the sum.'
+    + (state.smoke === 'current' ? ' Quitting smoking is modelled as it happens in life: the excess risk fades over the following years, so the benefit keeps growing after you quit.' : '')
+    + (full.capped && !full.compressed ? ` <b>Your combined risk hit the model's ${MAX_MULT}× cap</b> — beyond that the evidence cannot separate one factor's effect from another, so the per-factor figures on this page are approximate.` : '')
+    + (full.compressed ? ` <b>Your combined risk is below half the national average.</b> Combined low-risk profiles have been studied to about that point; beyond it the model counts each further halving of risk as half, and the per-factor bars are scaled to match.` : '');
+}
+function renderGroupSummaries() {
+  $('gsumDemo').textContent = `${state.sex === 'M' ? 'Male' : 'Female'}, ${state.age}, ${LIFETABLES.countries[state.country].name}`;
+  $('gsumBody').textContent = `BMI ${bmiOf(state).toFixed(1)} · ${state.sbp} mmHg`;
+  $('gsumLife').textContent = `${FACTOR_BY_ID.smoking.value(state).split(',')[0]} · ${state.activity} min · ${state.alcohol}/wk`;
+  const conds = ['diabetes', 'cvd', 'af', 'copd', 'ckd', 'mental', 'osa', 'drugs'].filter(k => state[k] && state[k] !== 'none').length;
+  $('gsumClin').textContent = (conds ? `${conds} condition${conds > 1 ? 's' : ''}` : 'none') + (state.srh !== 'unk' ? ` · ${FACTOR_BY_ID.srh.value(state).toLowerCase()}` : '');
+  $('gsumSocial').textContent = `${state.education} yrs · ${FACTOR_BY_ID.social.value(state).toLowerCase()}`;
+  const fit = ['vo2max', 'grip', 'sitting'].filter(k => state[k] !== null).length + (state.strength !== 'unk' ? 1 : 0);
+  $('gsumFit').textContent = fit ? `${fit} entered` : 'optional';
+  const diet = ['nuts', 'grains', 'meat', 'sugary', 'coffee'].filter(k => state[k] !== 'unk').length;
+  $('gsumDiet').textContent = `${state.fruitveg} F&V/day` + (diet ? ` · ${diet} more` : '');
+  $('bmiOut').textContent = `BMI ${bmiOf(state).toFixed(1)}`;
+}
+
+// Factor table in the methodology panel — rendered from FACTORS so it cannot drift.
+function renderFactorTable() {
+  let html = '<tr><th>Factor</th><th>Hazard ratios</th><th>Reference distribution</th><th>Source</th></tr>';
+  for (const f of FACTORS) {
+    html += `<tr><td>${f.label}</td><td>${escapeHtml(f.hrText)}</td><td>${escapeHtml(f.distText)}</td><td class="src">${
+      f.source.map(([t, u]) => `<a href="${u}" target="_blank" rel="noopener">${escapeHtml(t)}</a>`).join('<br>')}</td></tr>`;
+  }
+  $('tblFactors').innerHTML = html;
+}
+
+// Live calibration against life-expectancy differences the source papers report.
+const CALIBRATIONS = [
+  { name: 'Smoking, US man aged 35', ref: 'Jha 2013: ≈ 10 years lost (range 7–12)', lo: 7, hi: 12,
+    run: () => diffLE({ ...DEFAULTS, age:35 }, { smoke:'current', cigs:'10to19' }) },
+  { name: 'Obesity (BMI 32 vs 23), US man aged 40', ref: 'Prospective Studies Collaboration 2009: 2–4 years lost for BMI 30–35 (accept 1.8–5)', lo: 1.8, hi: 5,
+    run: () => diffLE(withBmi({ ...DEFAULTS }, 23), { weight: withBmi({ ...DEFAULTS }, 32).weight }) },
+  { name: 'Severe obesity (BMI 42 vs 23), US man aged 40', ref: 'PSC 2009: ≈ 8–10 years lost (accept 6–11)', lo: 6, hi: 11,
+    run: () => diffLE(withBmi({ ...DEFAULTS }, 23), { weight: withBmi({ ...DEFAULTS }, 42).weight }) },
+  { name: 'Heavy drinking (> 25 drinks/wk vs ≤ 7), aged 40', ref: 'Wood 2018: ≈ 4–5 years lost', lo: 3.5, hi: 5.5,
+    run: () => diffLE({ ...DEFAULTS, alcohol:3 }, { alcohol:30 }) },
+  // Li's definitions: never smoker, BMI 18.5–25, ≥ 30 min/day activity, moderate
+  // alcohol, top-40% diet — versus none of those (so: a smoker who is merely
+  // overweight, does under 30 min/day, and eats an average diet).
+  { name: 'Five low-risk habits vs none, US man aged 50', ref: 'Li 2018 Circulation: 12.2 years for men, 14.0 for women (accept 10–16)', lo: 10, hi: 16,
+    run: () => diffLE(withBmi({ ...DEFAULTS, age:50, activity:300, alcohol:5, fruitveg:5, smoke:'never' }, 23),
+                       { ...withBmi({ ...DEFAULTS, age:50 }, 28), activity:60, alcohol:0, fruitveg:2, smoke:'current', cigs:'10to19' }) },
+  { name: 'Diabetes + heart attack, US man aged 60', ref: 'Di Angelantonio 2015: 12 years lost with two conditions, on a cohort with a lower death rate than the US table (a constant 3.7× on the US table gives 10; accept 8–15)', lo: 8, hi: 15,
+    run: () => diffLE({ ...DEFAULTS, age:60 }, { diabetes:'yes', cvd:true }) },
+];
+function withBmi(s, bmi) { return { ...s, weight: bmi * (s.height / 100) ** 2 }; }
+// The papers compare groups that differ in the named factor(s) and are otherwise
+// alike, so every other factor is held at the population average.
+const KEY_FACTOR = { smoke:'smoking', cigs:'smoking', weight:'bmi', alcohol:'alcohol', diabetes:'diabetes', cvd:'cvd', activity:'activity', fruitveg:'diet' };
+function diffLE(good, badPatch) {
+  const vary = new Set(Object.keys(badPatch).map(k => KEY_FACTOR[k]).filter(Boolean));
+  const neutral = new Set(FACTORS.map(f => f.id).filter(id => !vary.has(id)));
+  return summarize(good, { neutral }).le - summarize({ ...good, ...badPatch }, { neutral }).le;
+}
+function renderCalibration() {
+  $('calib').innerHTML = CALIBRATIONS.map(c => {
+    const v = c.run(), ok = v >= c.lo && v <= c.hi;
+    return `<div class="calib-card"><div class="cname">${c.name}</div><div class="cval">${fmt1(v)} years <span class="${ok ? 'ok' : 'bad'}">${ok ? '✓' : '✗'}</span></div><div class="cref">${c.ref}</div></div>`;
+  }).join('');
+}
+
+// ── Export ─────────────────────────────────────────────────────────────────
+let last = null;
+function exportCsv() {
+  if (!last) return;
+  const { full, base, imp } = last;
+  const lines = ['age,national_average_alive,you_alive' + (imp ? ',whatif_alive' : '') + ',your_q'];
+  for (let x = state.age; x <= MAX_AGE + 1; x++)
+    lines.push([x, base.S[x].toFixed(5), full.S[x].toFixed(5), ...(imp ? [imp.S[x].toFixed(5)] : []), x <= MAX_AGE ? full.q[x].toFixed(6) : ''].join(','));
+  download('life-expectancy-survival.csv', 'text/csv', lines.join('\n'));
+}
+function exportPng() {
+  const src = $('chSurv');
+  if (!src || !charts.chSurv) return;
+  const out = document.createElement('canvas');
+  out.width = src.width; out.height = src.height;
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = ink().surface; ctx.fillRect(0, 0, out.width, out.height);
+  ctx.drawImage(src, 0, 0);
+  const a = document.createElement('a');
+  a.href = out.toDataURL('image/png'); a.download = 'life-expectancy-survival.png'; a.click();
+}
+function download(name, type, text) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// ── Refresh ────────────────────────────────────────────────────────────────
+function refreshAll() {
+  const full = summarize(state);
+  const base = summarize(state, { baseline: true });
+  const periodLE = state.improve ? summarize({ ...state, improve: false }).le : full.le;
+  const active = new Set([...whatif].filter(id => WHATIFS.find(w => w.id === id).applies(state)));
+  const imp = active.size ? summarize(applyWhatIfs(state, active)) : null;
+  const contrib = contributions(state, full);
+  last = { full, base, imp, contrib };
+  renderHero(full, base, contrib, imp, periodLE);
+  renderGroupSummaries();
+  renderSurvival(full, base, imp);
+  renderTiles(full, base);
+  renderTornado(contrib);
+  renderWhatIf(full, imp);
+  renderDist(full);
+  syncURL();
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+// Chart.js comes from a CDN. If it is blocked the page still renders its numbers,
+// so say what happened rather than dying with a console-only ReferenceError.
+if (typeof Chart === 'undefined') {
+  document.querySelectorAll('.chart-wrap').forEach(w => {
+    w.innerHTML = '<div class="empty-state"><p>Charts could not load — the Chart.js CDN is unreachable. Every figure and table on the page is still accurate.</p></div>';
+  });
+  window.Chart = function(){ return { destroy(){}, update(){} }; };
+}
+function init() {
+  $('inCountry').innerHTML = Object.entries(LIFETABLES.countries).map(([iso, c]) => `<option value="${iso}">${c.name}</option>`).join('');
+  document.querySelectorAll('.sidebar [data-key]').forEach(el => {
+    if (el.classList.contains('mode-btn')) el.addEventListener('click', onModeBtn);
+    else el.addEventListener('input', onInput);
+  });
+  syncThemeBtn();
+  renderFactorTable();
+  renderCalibration();
+  applyHash(location.hash);
+  syncControls();
+  refreshAll();
+  addEventListener('hashchange', () => { if (applyHash(location.hash)) { syncControls(); refreshAll(); } });
+}
+init();
+</script>
+</body>
+</html>
