@@ -3,7 +3,7 @@
 
 An actuarial life-expectancy estimate: start from your country's official life table, adjust it with 35 published hazard ratios for the risk factors with the strongest evidence, and read off your survival curve, the years each factor adds or costs, the chance of reaching 80 / 90 / 100, and what changing something would do — with every number cited.
 
-![Life Expectancy Dashboard screenshot](screenshot.png)
+<img width="1440" height="1250" alt="screenshot" src="https://github.com/user-attachments/assets/82e32e8e-15e0-48b8-84ec-7f2cf2e3e7ba" />
 
 ## What it models
 
