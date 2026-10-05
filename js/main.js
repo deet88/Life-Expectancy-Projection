@@ -1,18 +1,18 @@
 // ── Refresh ────────────────────────────────────────────────────────────────
 function refreshAll() {
-  const full = summarize(state);
-  const base = summarize(state, { baseline: true });
-  const periodLE = state.improve ? summarize({ ...state, improve: false }).le : full.le;
-  const active = new Set([...whatif].filter(id => WHATIFS.find(w => w.id === id).applies(state)));
-  const imp = active.size ? summarize(applyWhatIfs(state, active)) : null;
-  const contrib = contributions(state, full);
+  const p = plan();
+  const full = summarize(p);
+  const base = summarize(p, { baseline: true });
+  const periodLE = p.improve ? summarize({ ...p, improve: false }).le : full.le;
+  const imp = events.length ? summarize({ ...p, events: [] }) : null;   // "if nothing changes"
+  const contrib = contributions(p, full);
   last = { full, base, imp, contrib };
   renderHero(full, base, contrib, imp, periodLE);
   renderGroupSummaries();
   renderSurvival(full, base, imp);
   renderTiles(full, base);
   renderTornado(contrib);
-  renderWhatIf(full, imp);
+  renderTimeline(full, imp);
   renderDist(full);
   syncURL();
 }
@@ -33,6 +33,7 @@ function init() {
     else el.addEventListener('input', onInput);
   });
   syncThemeBtn();
+  bindTimeline();
   renderFactorTable();
   renderCalibration();
   applyHash(location.hash);

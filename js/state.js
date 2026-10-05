@@ -14,8 +14,10 @@ const DEFAULTS = {
 };
 const OPTIONAL_NUM = { waist:[50, 200], rhr:[35, 140], vo2max:[10, 90], grip:[5, 90], crp:[0.1, 50], sitting:[0, 18], pm25:[0, 150] };
 let state = { ...DEFAULTS };
-let whatif = new Set();
+let events = [];               // health timeline, sorted by age
 const KEYS = Object.keys(DEFAULTS);
+// The profile plus its timeline: what the engine is given.
+function plan() { return { ...state, events }; }
 
 // ── Hash (shareable link) ──────────────────────────────────────────────────
 // Hand-rolled rather than URLSearchParams so the link stays readable. Every
@@ -42,7 +44,7 @@ function stateToHash() {
     if (v === DEFAULTS[k]) continue;
     parts.push(HASH_KEYS[k] + '=' + (typeof v === 'boolean' ? (v ? 1 : 0) : v));
   }
-  if (whatif.size) parts.push('wi=' + WHATIFS.filter(w => whatif.has(w.id)).map(w => w.id).join(','));
+  if (events.length) parts.push('ev=' + encodeEvents(events));
   return parts.join('&');
 }
 function hashParams(h) {
@@ -67,7 +69,10 @@ function applyHash(h) {
     else if (CHOICES[k] && CHOICES[k].includes(raw)) next[k] = raw;
   }
   state = clampState(next);
-  whatif = new Set((p.wi || '').split(',').filter(id => WHATIFS.some(w => w.id === id)));
+  events = decodeEvents(p.ev);
+  // Links from before the timeline carried ticked what-ifs (wi=); they become changes dated today.
+  const legacy = WHATIFS.filter(w => (p.wi || '').split(',').includes(w.id) && w.applies(state));
+  if (legacy.length) events = sortEvents([...events, ...legacy.map(w => cleanEvent(w.event(state)))]).slice(0, TL_MAX_EVENTS);
   return true;
 }
 function clampState(s) {

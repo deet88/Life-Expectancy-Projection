@@ -62,7 +62,12 @@ function devProb(key, age, x) {
   const P = interp(AGE_PREV[key], x), P0 = interp(AGE_PREV[key], age);
   return Math.max(0, (P - P0) / (1 - P0));
 }
-function expectHR(has, hrIfHas, key, s, x) { return has ? hrIfHas : 1 + devProb(key, s.age, x) * (hrIfHas - 1); }
+// s.noOnset[key] is set by a timeline diagnosis dated after x: onset is stipulated
+// for later, so there is no background chance of it before then.
+function expectHR(has, hrIfHas, key, s, x) {
+  if (has) return hrIfHas;
+  return s.noOnset && s.noOnset[key] ? 1 : 1 + devProb(key, s.age, x) * (hrIfHas - 1);
+}
 const COPD_MEAN_HR = .7 * 1.6 + .3 * 2.7, CKD_MEAN_HR = .9 * 1.5 + .1 * 3.1;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -220,7 +225,7 @@ const FACTORS = [
   { id:'diabetes', group:'Health', label:'Diabetes',
     // Prediabetes: 1.13 today, converging on the diabetes HR as onset accrues at
     // roughly three times the population rate (ADA: 5–10% of prediabetics a year).
-    hr: (s, x) => s.diabetes === 'yes' ? 1.80 : s.diabetes === 'pre' ? 1.13 + Math.min(1, 3 * devProb('diabetes', s.age, x)) * (1.80 - 1.13)
+    hr: (s, x) => s.diabetes === 'yes' ? 1.80 : s.diabetes === 'pre' ? 1.13 + (s.noOnset && s.noOnset.diabetes ? 0 : Math.min(1, 3 * devProb('diabetes', s.age, x))) * (1.80 - 1.13)
                  : expectHR(false, 1.80, 'diabetes', s, x),
     dist: (s, x) => { const p = interp(AGE_PREV.diabetes, x), pre = Math.min(0.25, 1 - p); return [ {hr:1, p:1 - p - pre}, {hr:1.13, p:pre}, {hr:1.80, p} ]; },
     attenFrom: Infinity,   // established disease: the source's life-expectancy figures imply a sustained HR
@@ -478,12 +483,13 @@ function adjustedQ(s, opts = {}) {
     if (!opts.baseline) {
       let m = 1;
       const groups = {};
+      const sx = stateAt(s, x);           // the person as they will be at x (health timeline)
       for (const f of FACTORS) {
         if (opts.neutral && opts.neutral.has(f.id)) continue;
-        let fm = factorMult(f, s, x);
+        let fm = factorMult(f, sx, x);
         // Measured fitness is what self-reported exercise was standing in for:
         // when VO2max is entered, the exercise answer counts at half weight.
-        if (f.id === 'activity' && s.vo2max !== null) fm = Math.sqrt(fm);
+        if (f.id === 'activity' && sx.vo2max !== null) fm = Math.sqrt(fm);
         if (f.capGroup) groups[f.capGroup] = (groups[f.capGroup] || 1) * fm;
         else m *= fm;
       }
@@ -540,28 +546,25 @@ function contributions(s, full) {
   return { rows, base, total: full.le - base, interaction, scaled: altered };
 }
 
-// ── What-if scenarios ──────────────────────────────────────────────────────
+// ── Quick changes: one-click timeline presets, each an event dated today ────
+const SET_NOW = (field, value) => s => ({ kind:'set', age:s.age, field, value });
 const WHATIFS = [
-  { id:'quitSmoking', label:'Quit smoking today', applies: s => s.smoke === 'current',
-    apply: s => ({ ...s, smoke:'former', quitYears:0 }) },
+  { id:'quitSmoking', label:'Quit smoking', applies: s => s.smoke === 'current', event: s => ({ kind:'quit', age:s.age }) },
   { id:'healthyBmi', label:'Reach a healthy weight (BMI 24)', applies: s => bmiOf(s) >= 25 || bmiOf(s) < 18.5,
-    apply: s => ({ ...s, weight: +(24 * (s.height / 100) ** 2).toFixed(1) }) },
-  { id:'activity', label:'Exercise 150 min/week', applies: s => s.activity < 150, apply: s => ({ ...s, activity:150 }) },
-  { id:'alcohol', label:'Cut alcohol to 7 drinks/week', applies: s => s.alcohol > 7, apply: s => ({ ...s, alcohol:7 }) },
-  { id:'diet', label:'Eat 5 servings of fruit & veg a day', applies: s => s.fruitveg < 5, apply: s => ({ ...s, fruitveg:5 }) },
-  { id:'sleep', label:'Sleep 7–8 hours', applies: s => s.sleep < 7 || s.sleep >= 9, apply: s => ({ ...s, sleep:7.5 }) },
-  { id:'bp', label:'Bring blood pressure under 130', applies: s => s.sbp >= 130, apply: s => ({ ...s, sbp:125 }) },
-  { id:'social', label:'Build stronger social ties', applies: s => s.social !== 'strong', apply: s => ({ ...s, social:'strong' }) },
-  { id:'strength', label:'Add 1–2 strength sessions a week', applies: s => s.strength === 'none', apply: s => ({ ...s, strength:'1to2' }) },
-  { id:'sitting', label:'Sit less than 8 hours a day', applies: s => s.sitting !== null && s.sitting > 8, apply: s => ({ ...s, sitting:7 }) },
-  { id:'nuts', label:'Eat a handful of nuts most days', applies: s => s.nuts === 'rare' || s.nuts === 'weekly', apply: s => ({ ...s, nuts:'daily' }) },
-  { id:'grains', label:'Switch to whole grains', applies: s => s.grains === 'rare' || s.grains === 'some', apply: s => ({ ...s, grains:'daily' }) },
-  { id:'meat', label:'Cut processed meat to rarely', applies: s => s.meat === 'weekly' || s.meat === 'daily', apply: s => ({ ...s, meat:'rare' }) },
-  { id:'sugary', label:'Cut sugary drinks to rarely', applies: s => ['weekly', 'daily', 'twice'].includes(s.sugary), apply: s => ({ ...s, sugary:'rare' }) },
+    event: s => ({ kind:'weight', age:s.age, value: +(24 * (s.height / 100) ** 2).toFixed(1) }) },
+  { id:'activity', label:'Exercise 150 min/week', applies: s => s.activity < 150, event: SET_NOW('activity', 150) },
+  { id:'alcohol', label:'Cut alcohol to 7 drinks/week', applies: s => s.alcohol > 7, event: SET_NOW('alcohol', 7) },
+  { id:'diet', label:'Eat 5 servings of fruit & veg a day', applies: s => s.fruitveg < 5, event: SET_NOW('fruitveg', 5) },
+  { id:'sleep', label:'Sleep 7–8 hours', applies: s => s.sleep < 7 || s.sleep >= 9, event: SET_NOW('sleep', 7.5) },
+  { id:'bp', label:'Bring blood pressure under 130', applies: s => s.sbp >= 130, event: s => ({ kind:'bp', age:s.age, value:125 }) },
+  { id:'social', label:'Build stronger social ties', applies: s => s.social !== 'strong', event: SET_NOW('social', 'strong') },
+  { id:'strength', label:'Add 1–2 strength sessions a week', applies: s => s.strength === 'none', event: SET_NOW('strength', '1to2') },
+  { id:'sitting', label:'Sit less than 8 hours a day', applies: s => s.sitting !== null && s.sitting > 8, event: SET_NOW('sitting', 7) },
+  { id:'nuts', label:'Eat a handful of nuts most days', applies: s => s.nuts === 'rare' || s.nuts === 'weekly', event: SET_NOW('nuts', 'daily') },
+  { id:'grains', label:'Switch to whole grains', applies: s => s.grains === 'rare' || s.grains === 'some', event: SET_NOW('grains', 'daily') },
+  { id:'meat', label:'Cut processed meat to rarely', applies: s => s.meat === 'weekly' || s.meat === 'daily', event: SET_NOW('meat', 'rare') },
+  { id:'sugary', label:'Cut sugary drinks to rarely', applies: s => ['weekly', 'daily', 'twice'].includes(s.sugary), event: SET_NOW('sugary', 'rare') },
 ];
-function applyWhatIfs(s, ids) {
-  let t = s;
-  for (const w of WHATIFS) if (ids.has(w.id) && w.applies(s)) t = w.apply(t);
-  return t;
-}
+// A plan with extra events merged in, in date order.
+function withEvents(s, extra) { return { ...s, events: sortEvents([...(s.events || []), ...extra]) }; }
 

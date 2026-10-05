@@ -79,7 +79,7 @@ function onModeBtn(e) {
   syncControls();
   refreshAll();
 }
-function resetAll() { state = { ...DEFAULTS }; whatif = new Set(); syncControls(); refreshAll(); }
+function resetAll() { state = { ...DEFAULTS }; events = []; syncControls(); refreshAll(); }
 function toggleTheme() {
   const t = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
   document.documentElement.dataset.theme = t;
@@ -105,8 +105,10 @@ const markerPlugin = { id: 'markers', afterDatasetsDraw(chart) {
     ctx.beginPath(); ctx.moveTo(px, top); ctx.lineTo(px, bottom); ctx.stroke();
     ctx.setLineDash([]);
     ctx.fillStyle = m.text; ctx.font = '600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.fillText(m.label, px, top + 4 + (m.row || 0) * 13);
+    // Timeline events sit at the bottom, left-aligned: survival is still near 100% at
+    // those ages, so the bottom-left of the chart is the empty part.
+    ctx.textAlign = m.align || 'center'; ctx.textBaseline = m.bottom ? 'bottom' : 'top';
+    ctx.fillText(m.label, px + (m.align === 'left' ? 4 : 0), m.bottom ? bottom - 4 - (m.row || 0) * 13 : top + 4 + (m.row || 0) * 13);
     ctx.restore();
   });
 } };
@@ -145,14 +147,14 @@ function baseOptions(c) {
       y: { grid: { color: c.grid, drawTicks: false }, border: { display: false }, ticks: { color: c.muted, font: { size: 11 } } } } };
 }
 
-function renderSurvival(full, base, imp) {
+function renderSurvival(full, base, imp) {   // imp: the plan without its timeline, when it has one
   const c = ink(), a = state.age;
   const pts = S => { const out = []; for (let x = a; x <= MAX_AGE + 1; x++) out.push({ x, y: S[x] }); return out; };
   const datasets = [
     { label: 'National average', data: pts(base.S), borderColor: c.avg, borderWidth: 2, pointRadius: 0, tension: 0.2, order: 3 },
     { label: 'You', data: pts(full.S), borderColor: c.you, borderWidth: 2.5, pointRadius: 0, tension: 0.2, order: 2 },
   ];
-  if (imp) datasets.push({ label: 'What-if scenario', data: pts(imp.S), borderColor: c.improved, borderWidth: 2, borderDash: [6, 4], pointRadius: 0, tension: 0.2, order: 1 });
+  if (imp) datasets.push({ label: 'If nothing changes', data: pts(imp.S), borderColor: c.improved, borderWidth: 2, borderDash: [6, 4], pointRadius: 0, tension: 0.2, order: 1 });
   // Median markers: one filled dot per series where S crosses 50%, with a surface ring.
   const medDots = [ { x: base.median, y: 0.5, color: c.avg }, { x: full.median, y: 0.5, color: c.you } ];
   if (imp) medDots.push({ x: imp.median, y: 0.5, color: c.improved });
@@ -161,16 +163,18 @@ function renderSurvival(full, base, imp) {
   const opts = baseOptions(c);
   opts.scales.x.min = a; opts.scales.x.max = MAX_AGE + 1; opts.scales.x.title = { display: true, text: 'Age', color: c.muted, font: { size: 11 } };
   opts.scales.y.min = 0; opts.scales.y.max = 1; opts.scales.y.ticks.callback = v => Math.round(v * 100) + '%';
-  opts.plugins.markers = { items: [80, 90, 100].filter(m => m > a).map((m, i) => ({ x: m, label: `${m}: ${fmtPct(full.reach(m))}`, color: c.grid, text: c.muted, row: 0 })) };
+  opts.plugins.markers = { items: [80, 90, 100].filter(m => m > a).map((m, i) => ({ x: m, label: `${m}: ${fmtPct(full.reach(m))}`, color: c.grid, text: c.muted, row: 0 }))
+    // Timeline events: a dashed line at each age, labels staggered so neighbours don't collide.
+    .concat(events.filter(e => eventApplies(e, state)).map((e, i) => ({ x: Math.max(e.age, a), label: shortEvent(e, state.units), color: c.improved, text: c.muted, dash: [3, 3], row: i % 3, bottom: true, align: 'left' }))) };
   opts.plugins.tooltip.callbacks = { title: items => `Age ${items[0].parsed.x}`,
     label: item => item.dataset.showLine === false ? null : ` ${item.dataset.label}: ${fmtPct(item.parsed.y)} alive`,
     filter: item => item.dataset.showLine !== false };
   drawChart('chSurv', { type: 'line', data: { datasets }, options: opts });
   $('legSurv').innerHTML = `<span><i style="border-color:${c.you}"></i>You</span><span><i style="border-color:${c.avg}"></i>National average (your age &amp; sex)</span>`
-    + (imp ? `<span><i class="dash" style="border-color:${c.improved}"></i>What-if scenario</span>` : '')
+    + (imp ? `<span><i class="dash" style="border-color:${c.improved}"></i>If nothing changes</span>` : '')
     + `<span><i class="sw" style="background:${c.you};border-radius:50%;width:9px;height:9px"></i>Median age at death</span>`;
   // Table twin, every 5 years
-  let rows = '<tr><th>Age</th><th class="num">National average</th><th class="num">You</th>' + (imp ? '<th class="num">What-if</th>' : '') + '</tr>';
+  let rows = '<tr><th>Age</th><th class="num">National average</th><th class="num">You</th>' + (imp ? '<th class="num">If nothing changes</th>' : '') + '</tr>';
   for (let x = Math.ceil(a / 5) * 5; x <= MAX_AGE; x += 5) {
     if (x <= a) continue;
     rows += `<tr><td>${x}</td><td class="num">${fmtPct(base.S[x])}</td><td class="num">${fmtPct(full.S[x])}</td>` + (imp ? `<td class="num">${fmtPct(imp.S[x])}</td>` : '') + '</tr>';
@@ -204,7 +208,8 @@ function renderTornado(contrib) {
     datasets: [{ data: items.map(i => i.shown), backgroundColor: items.map(i => i.color), borderRadius: 4, borderSkipped: 'start', maxBarThickness: 14, categoryPercentage: 0.8, barPercentage: 0.9 }] },
     options: opts });
   let html = '<tr><th>Factor</th><th>You</th><th class="num">Years</th></tr>';
-  for (const r of rows) html += `<tr><td>${r.label}</td><td>${escapeHtml(r.value)}</td><td class="num ${Math.abs(r.years) < 0.05 ? '' : r.years > 0 ? 'pos' : 'neg'}">${signed(r.years)}</td></tr>`;
+  const onTimeline = timelineFactors(plan());
+  for (const r of rows) html += `<tr><td>${r.label}</td><td>${escapeHtml(r.value)}${onTimeline.has(r.id) ? ' <span class="tl-tag" title="The years include the changes on your health timeline">changes on timeline</span>' : ''}</td><td class="num ${Math.abs(r.years) < 0.05 ? '' : r.years > 0 ? 'pos' : 'neg'}">${signed(r.years)}</td></tr>`;
   html += `<tr><td>Interaction</td><td><span class="hint">factors multiply, so the bars don't sum exactly</span></td><td class="num">${signed(contrib.interaction)}</td></tr>`;
   html += `<tr><td><b>Total vs average</b></td><td></td><td class="num ${deltaClass(contrib.total).replace('delta-', '')}"><b>${signed(contrib.total)}</b></td></tr>`;
   $('tblTornado').innerHTML = html;
@@ -252,7 +257,7 @@ function renderHero(full, base, contrib, imp, periodLE) {
   ];
   if (state.improve) lines.push(`<span>Includes UN-projected mortality improvement: <span class="delta-pos">+${fmt1(full.le - periodLE)} years</span> over today's death rates.</span>`);
   else lines.push(`<span>Assumes today's death rates for the rest of your life. Tick <b>Mortality keeps improving</b> in the sidebar for the cohort figure.</span>`);
-  if (imp) lines.push(`<span>With the ticked changes: <b>${fmt1(imp.le)}</b> <span class="delta-pos">(+${fmt1(imp.le - full.le)})</span></span>`);
+  if (imp) lines.push(`<span>Includes your health timeline (${events.length} change${events.length > 1 ? 's' : ''}): <b>${fmt1(imp.le)}</b> if nothing changes, <span class="${deltaClass(full.le - imp.le)}">${signed(full.le - imp.le)} years</span> with them.</span>`);
   $('heroSide').innerHTML = lines.join('');
   $('hsLE').textContent = fmt1(full.le);
   $('hsDelta').textContent = signed(d) + ' y'; $('hsDelta').className = 'hstat-value ' + deltaClass(d);
@@ -266,29 +271,92 @@ function renderTiles(full, base) {
       <div class="tile-sub">average <b>${fmtPct(base.reach(m))}</b> · <span class="${deltaClass(d * 100)}">${(d >= 0 ? '+' : '−') + Math.abs(Math.round(d * 100))} pts</span></div></div>`;
   }).join('') || '<div class="hint">You have already passed every milestone this panel tracks.</div>';
 }
-function renderWhatIf(full, imp) {
-  const applicable = WHATIFS.filter(w => w.applies(state));
-  if (!applicable.length) {
-    $('whatifList').innerHTML = '<div class="note-box">Every modifiable factor is already at or beyond its target — there is no single change left to test here.</div>';
-    $('whatifTotal').innerHTML = ''; $('whatifNote').innerHTML = '';
-    return;
+// ── Health timeline panel ──────────────────────────────────────────────────
+const optKey = v => typeof v === 'boolean' ? (v ? '1' : '0') : String(v);
+const optionsHtml = (opts, v) => Object.entries(opts).map(([k, l]) => `<option value="${k}"${k === optKey(v) ? ' selected' : ''}>${l}</option>`).join('');
+function eventControls(e, i) {
+  const ctl = (prop, label) => `data-ev="${i}" data-prop="${prop}" aria-label="${label}"`;
+  const num = (prop, v, step, lo, hi, unit, label) => `<input type="number" ${ctl(prop, label)} value="${v}" step="${step}" min="${lo}" max="${hi}"><span>${unit}</span>`;
+  const sel = (prop, opts, v, label) => `<select ${ctl(prop, label)}>${optionsHtml(opts, v)}</select>`;
+  if (e.kind === 'quit') return '<span>Quit smoking</span>';
+  if (e.kind === 'weight') {
+    const imp = state.units === 'imperial';
+    return '<span>Reach</span>' + num('value', imp ? Math.round(e.value / KG_PER_LB) : e.value, imp ? 1 : 0.5, imp ? 66 : 30, imp ? 660 : 300, imp ? 'lb' : 'kg', 'Target weight')
+      + `<span class="why">BMI ${(e.value / (state.height / 100) ** 2).toFixed(1)} by this age, in a straight line from today</span>`;
   }
-  $('whatifList').innerHTML = applicable.map(w => {
-    const alone = summarize(w.apply(state)).le - full.le;
-    return `<div class="whatif-item"><label><input type="checkbox" data-wi="${w.id}" ${whatif.has(w.id) ? 'checked' : ''}> ${w.label}</label>
-      <span class="gain ${alone < 0.05 ? 'zero' : ''}">${alone < 0.05 ? '< 0.1' : '+' + fmt1(alone)} y</span></div>`;
-  }).join('');
-  document.querySelectorAll('input[data-wi]').forEach(el => el.addEventListener('change', e => {
-    if (e.target.checked) whatif.add(e.target.dataset.wi); else whatif.delete(e.target.dataset.wi);
-    refreshAll();
-  }));
-  if (imp) {
-    $('whatifTotal').innerHTML = `Together, the ticked changes take your life expectancy from <b>${fmt1(full.le)}</b> to <b>${fmt1(imp.le)}</b><span class="big">+${fmt1(imp.le - full.le)} y</span>`;
-  } else $('whatifTotal').innerHTML = 'Tick one or more changes to see their combined effect and the dashed scenario line on the survival curve.';
-  $('whatifNote').innerHTML = '<b>Why individual gains don\'t add up:</b> each line is the gain from that change alone. Applied together, the factors multiply, and a later change works on a lower remaining risk, so the total is a little less than the sum.'
-    + (state.smoke === 'current' ? ' Quitting smoking is modelled as it happens in life: the excess risk fades over the following years, so the benefit keeps growing after you quit.' : '')
+  if (e.kind === 'bp') return '<span>Blood pressure</span>' + num('value', e.value, 1, 90, 220, 'mmHg', 'Systolic blood pressure');
+  if (e.kind === 'set') {
+    const d = TL_SET[e.field], fields = Object.fromEntries(Object.entries(TL_SET).map(([k, v]) => [k, v.label]));
+    return sel('field', fields, e.field, 'Habit') + (d.range ? num('value', e.value, e.field === 'sleep' ? 0.5 : 1, d.range[0], d.range[1], d.unit, d.label)
+      : sel('value', d.options, e.value, d.label));
+  }
+  const d = TL_DX[e.field], fields = Object.fromEntries(Object.entries(TL_DX).map(([k, v]) => [k, v.label]));
+  return '<span>Diagnosed with</span>' + sel('field', fields, e.field, 'Condition') + (Object.keys(d.options).length > 1 ? sel('value', d.options, e.value, 'Severity') : '');
+}
+function inertReason(e) {
+  if (e.kind === 'quit') return "You don't currently smoke, so this changes nothing.";
+  if (e.kind === 'dx') return 'You already have this (or worse), so this changes nothing.';
+  return 'Same as your current answer, so this changes nothing.';
+}
+function renderTimeline(full, still) {
+  const solo = still || full;              // no events: "if nothing changes" is you
+  $('tlList').innerHTML = events.length ? events.map((e, i) => {
+    const live = eventApplies(e, state);
+    const alone = live ? summarize({ ...state, events: [e] }).le - solo.le : 0;
+    return `<div class="tl-item${live ? '' : ' inert'}">
+      <label class="tl-age">at <input type="number" data-ev="${i}" data-prop="age" aria-label="Age" value="${Math.max(e.age, state.age)}" min="${state.age}" max="100" step="1"></label>
+      <div class="tl-what">${eventControls(e, i)}${live ? '' : `<span class="why">${inertReason(e)}</span>`}</div>
+      <span class="tl-gain ${deltaClass(alone)}" title="Change in life expectancy from this event alone">${live ? signed(alone) + ' y' : '—'}</span>
+      <button type="button" class="tl-del" data-del="${i}" aria-label="Remove this event" title="Remove">×</button></div>`;
+  }).join('') : '<div class="tl-empty">No changes planned. Add one below, or use a quick change on the right; each is dated today and you can move it to any age.</div>';
+  if (still) {
+    const d = full.le - still.le;
+    $('whatifTotal').innerHTML = `Your timeline takes your life expectancy from <b>${fmt1(still.le)}</b> if nothing changes to <b>${fmt1(full.le)}</b><span class="big ${deltaClass(d)}">${signed(d)} y</span>`;
+  } else $('whatifTotal').innerHTML = 'Each change counts from the age you give it, and the survival curve gains a dashed <b>if nothing changes</b> line to compare against.';
+
+  const have = new Set(events.map(e => e.kind + (e.field || '')));
+  const presets = WHATIFS.filter(w => w.applies(state)).filter(w => { const e = w.event(state); return !have.has(e.kind + (e.field || '')); });
+  $('whatifList').innerHTML = presets.length ? presets.map(w => {
+    const gain = summarize(withEvents(plan(), [cleanEvent(w.event(state))])).le - full.le;
+    return `<div class="whatif-item"><label>${w.label}</label>
+      <span class="gain ${gain < 0.05 ? 'zero' : ''}">${gain < 0.05 ? '< 0.1' : '+' + fmt1(gain)} y</span>
+      <button type="button" class="btn" data-preset="${w.id}" aria-label="Add ${w.label} to the timeline">+ Add</button></div>`;
+  }).join('') : '<div class="note-box">Every modifiable factor is already at or beyond its target, or already on your timeline.</div>';
+
+  $('whatifNote').innerHTML = '<b>Why individual gains don\'t add up:</b> each figure is the gain from that change alone. Applied together, the factors multiply, and a later change works on a lower remaining risk, so the total is a little less than the sum.'
+    + (state.smoke === 'current' ? ' Quitting smoking is modelled as it happens in life: the excess risk fades over the following years, so the earlier you quit, the more of the loss you win back.' : '')
+    + (events.some(e => e.kind === 'dx') ? ' <b>A diagnosis on the timeline is a "what if"</b>, not a prediction: your estimate already prices in the average chance of developing each condition, and a dated diagnosis replaces that chance with certainty at that age.' : '')
     + (full.capped && !full.compressed ? ` <b>Your combined risk hit the model's ${MAX_MULT}× cap</b> — beyond that the evidence cannot separate one factor's effect from another, so the per-factor figures on this page are approximate.` : '')
     + (full.compressed ? ` <b>Your combined risk is below half the national average.</b> Combined low-risk profiles have been studied to about that point; beyond it the model counts each further halving of risk as half, and the per-factor bars are scaled to match.` : '');
+}
+// One set of listeners on the panel (its contents are re-rendered on every refresh).
+function onTimelineEdit(el) {
+  const i = +el.dataset.ev, prop = el.dataset.prop, e = { ...events[i] };
+  if (!events[i]) return;
+  if (prop === 'age') e.age = parseFloat(el.value);
+  else if (prop === 'value') e.value = e.kind === 'weight' && state.units === 'imperial' ? parseFloat(el.value) * KG_PER_LB : el.value;
+  else if (prop === 'field') { if (!(e.kind === 'set' ? TL_SET : e.kind === 'dx' ? TL_DX : {})[el.value]) return; e.field = el.value; e.value = e.kind === 'set' ? TL_SUGGEST[el.value] : Object.keys(TL_DX[el.value].options)[0]; }
+  const c = cleanEvent(e);
+  if (c) events[i] = c;
+  events = sortEvents(events);
+  refreshAll();
+}
+function addEvent(e) {
+  const c = cleanEvent(e);
+  if (!c || events.length >= TL_MAX_EVENTS) return;
+  events = sortEvents([...events, c]);
+  refreshAll();
+}
+function removeEvent(i) { events = events.filter((_, j) => j !== i); refreshAll(); }
+function bindTimeline() {
+  $('timelinePanel').addEventListener('change', ev => { if (ev.target.dataset.ev !== undefined) onTimelineEdit(ev.target); });
+  $('timelinePanel').addEventListener('click', ev => {
+    const t = ev.target.closest ? ev.target.closest('button') : ev.target;
+    if (!t || !t.dataset) return;
+    if (t.dataset.del !== undefined) removeEvent(+t.dataset.del);
+    else if (t.dataset.preset) addEvent(WHATIFS.find(w => w.id === t.dataset.preset).event(state));
+    else if (t.id === 'tlAddBtn') addEvent(newEvent($('tlAddKind').value, state));
+  });
 }
 function renderGroupSummaries() {
   $('gsumDemo').textContent = `${state.sex === 'M' ? 'Male' : 'Female'}, ${state.age}, ${LIFETABLES.countries[state.country].name}`;
@@ -354,7 +422,7 @@ let last = null;
 function exportCsv() {
   if (!last) return;
   const { full, base, imp } = last;
-  const lines = ['age,national_average_alive,you_alive' + (imp ? ',whatif_alive' : '') + ',your_q'];
+  const lines = ['age,national_average_alive,you_alive' + (imp ? ',if_nothing_changes_alive' : '') + ',your_q'];
   for (let x = state.age; x <= MAX_AGE + 1; x++)
     lines.push([x, base.S[x].toFixed(5), full.S[x].toFixed(5), ...(imp ? [imp.S[x].toFixed(5)] : []), x <= MAX_AGE ? full.q[x].toFixed(6) : ''].join(','));
   download('life-expectancy-survival.csv', 'text/csv', lines.join('\n'));

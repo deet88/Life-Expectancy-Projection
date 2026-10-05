@@ -479,15 +479,27 @@
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="timelinePanel">
       <div class="panel-head">
-        <h2>What if you changed something?</h2>
-        <p>Tick a change to overlay the scenario on the survival curve. Each line shows the gain from that change alone; the total applies them together.</p>
+        <h2>Health timeline</h2>
+        <p>Changes you plan, or things that might happen, at the age they happen. Your estimate includes them; the dashed line on the survival curve is what happens if nothing changes.</p>
       </div>
       <div class="two-col">
-        <div class="whatif-list" id="whatifList"></div>
         <div>
+          <div class="tl-list" id="tlList"></div>
+          <div class="tl-add">
+            <select id="tlAddKind" aria-label="Kind of event to add">
+              <option value="quit">Quit smoking</option><option value="weight">Reach a weight</option>
+              <option value="bp">Blood pressure</option><option value="set" selected>Change a habit</option>
+              <option value="dx">Diagnosis</option>
+            </select>
+            <button type="button" class="btn" id="tlAddBtn">+ Add to timeline</button>
+          </div>
           <div class="whatif-total" id="whatifTotal"></div>
+        </div>
+        <div>
+          <div class="sub-head">Quick add, starting now</div>
+          <div class="whatif-list" id="whatifList"></div>
           <div class="note-box" style="margin-top:12px" id="whatifNote"></div>
         </div>
       </div>
@@ -581,6 +593,7 @@
 
 <script src="data/lifetables.js"></script>
 <script src="js/engine.js"></script>
+<script src="js/timeline.js"></script>
 <script src="js/state.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/main.js"></script>

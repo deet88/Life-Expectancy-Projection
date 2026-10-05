@@ -155,6 +155,24 @@ details.tbl summary:hover { color: var(--text); }
 .whatif-total { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); }
 .whatif-total b { color: var(--text); }
 .whatif-total .big { font-size: 20px; font-weight: 800; color: var(--strong); margin-left: 6px; }
+.sub-head { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+.tl-list { display: flex; flex-direction: column; gap: 6px; }
+.tl-item { display: grid; grid-template-columns: auto 1fr auto auto; gap: 10px; align-items: center; padding: 8px 10px;
+  border-radius: 7px; background: var(--card2); border: 1px solid var(--border); }
+.tl-item.inert { opacity: .6; }
+.tl-age { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
+.tl-what { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--text); min-width: 0; }
+.tl-what .why { flex-basis: 100%; font-size: 11px; color: var(--muted); }
+.tl-item input[type=number], .tl-item select, .tl-add select { padding: 4px 6px; border-radius: 6px; border: 1px solid var(--border2);
+  background: var(--surface); color: var(--text); font: inherit; font-size: 12px; }
+.tl-item input[type=number] { width: 64px; }
+.tl-gain { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tl-del { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 4px; }
+.tl-del:hover { color: var(--red); }
+.tl-add { display: flex; gap: 6px; margin-top: 8px; }
+.tl-tag { font-size: 10px; font-weight: 600; color: var(--chart-improved); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; margin-left: 4px; white-space: nowrap; }
+.tl-empty { font-size: 12px; color: var(--muted); padding: 10px; border: 1px dashed var(--border2); border-radius: 7px; }
+.whatif-item button { padding: 3px 8px; font-size: 11px; }
 .note-box { background: rgba(93,106,240,.07); border: 1px solid rgba(93,106,240,.22);
   border-radius: 7px; padding: 9px 12px; font-size: 11px; color: var(--muted); line-height: 1.6; }
 .note-box b { color: var(--text); }

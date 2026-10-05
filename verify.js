@@ -84,16 +84,17 @@ function readFile(rel) {
 const inline = src.split('<script>').slice(1).map(b => b.split('</script>')[0]);
 ok('page has one inline script block (theme, before first paint)', inline.length === 1, inline.length);
 const scriptFiles = [...src.matchAll(/<script src="([^":]+)"><\/script>/g)].map(m => m[1]);
-ok('page loads the data, engine, state, ui and main scripts in order',
-  scriptFiles.join() === 'data/lifetables.js,js/engine.js,js/state.js,js/ui.js,js/main.js', scriptFiles.join());
+ok('page loads the data, engine, timeline, state, ui and main scripts in order',
+  scriptFiles.join() === 'data/lifetables.js,js/engine.js,js/timeline.js,js/state.js,js/ui.js,js/main.js', scriptFiles.join());
 const appSrc = scriptFiles.map(readFile).join('\n') + `
-;({ summarize, adjustedQ, survival, lifeExp, ageAtPct, contributions, applyWhatIfs, WHATIFS, FACTORS, FACTOR_BY_ID,
+;({ summarize, adjustedQ, survival, lifeExp, ageAtPct, contributions, WHATIFS, withEvents, stateAt, cleanEvent, sortEvents, eventApplies, newEvent, encodeEvents, decodeEvents, describeEvent, shortEvent, timelineFactors, TL_SET, TL_DX, SBP_MEDIAN, FACTORS, FACTOR_BY_ID,
    factorMult, atten, baseQ, bmiOf, bmiHR, actHR, alcHR, sleepHR, sbpHR, fvHR, formerHR, interp, devProb, sbpAt,
    DEFAULTS, KEYS, HASH_KEYS, LIFETABLES, PREV, PARENT_HR, PARENT_DIST, PARENT_CODES, ALIVE_AGE, parentHR, SMOKE_HR, SMOKE_SPLIT, AGE_PREV,
    CALIBRATIONS, withBmi, diffLE, MAX_AGE, MAX_MULT, MIN_MULT, SOFT_FROM, GROUP_CAPS, BASE_YR, VASC_SHARE,
    stateToHash, applyHash, hashParams, clampState, onInput, onModeBtn, resetAll, syncControls, refreshAll,
    toggleTheme, exportCsv, exportPng, renderFactorTable, renderCalibration,
-   state: () => state, whatif: () => whatif, last: () => last })`;
+   addEvent, removeEvent, onTimelineEdit, plan,
+   state: () => state, events: () => events, setEvents: v => { events = v; }, last: () => last })`;
 const A = eval(appSrc);
 
 const COUNTRIES = Object.keys(A.LIFETABLES.countries);
@@ -441,23 +442,126 @@ for (const p of [D, { ...D, age: 70, smoke: 'current', cigs: 'ge20', diabetes: '
   ok('heavy smoker row strongly negative', cs.rows.find(r => r.id === 'smoking').years < -5);
   ok('smoking is the largest bar for a heavy smoker', cs.rows.slice().sort((a, b) => Math.abs(b.years) - Math.abs(a.years))[0].id === 'smoking');
 }
-// What-ifs
+// Quick changes (timeline presets): each is an event dated today
 {
-  ok('fourteen what-if changes', A.WHATIFS.length === 14, A.WHATIFS.length);
+  ok('fourteen quick changes', A.WHATIFS.length === 14, A.WHATIFS.length);
   const bad = A.withBmi({ ...D, age: 45, smoke: 'current', cigs: 'ge20', activity: 20, alcohol: 20, sbp: 145, sleep: 5.5, fruitveg: 1, social: 'isolated', strength: 'none', sitting: 11, nuts: 'rare', grains: 'rare', meat: 'daily', sugary: 'twice' }, 33);
   ok('every change applies to the high-risk profile', A.WHATIFS.every(w => w.applies(bad)), A.WHATIFS.filter(w => !w.applies(bad)).map(w => w.id).join());
   ok('no change applies to an already-optimal profile', !A.WHATIFS.some(w => w.applies(A.withBmi({ ...D, activity: 300, fruitveg: 5, strength: '3plus', sitting: 5, nuts: 'daily', grains: 'daily', meat: 'rare', sugary: 'rare' }, 23))));
   ok('only weight and diet apply to the default profile', A.WHATIFS.filter(w => w.applies(D)).map(w => w.id).join() === 'healthyBmi,diet');
+  ok('every preset is a valid event', A.WHATIFS.every(w => A.cleanEvent(w.event(bad)) !== null));
+  ok('every preset is dated today', A.WHATIFS.every(w => w.event(bad).age === bad.age));
+  // The invariant that ties the timeline to the inputs: a change dated today is the
+  // same person as one whose inputs were edited directly, at every age.
+  const DIRECT = { quitSmoking: { smoke: 'former', quitYears: 0 }, healthyBmi: { weight: +(24 * (bad.height / 100) ** 2).toFixed(1) },
+    activity: { activity: 150 }, alcohol: { alcohol: 7 }, diet: { fruitveg: 5 }, sleep: { sleep: 7.5 }, bp: { sbp: 125 },
+    social: { social: 'strong' }, strength: { strength: '1to2' }, sitting: { sitting: 7 }, nuts: { nuts: 'daily' },
+    grains: { grains: 'daily' }, meat: { meat: 'rare' }, sugary: { sugary: 'rare' } };
+  ok('every preset has a direct-edit twin', A.WHATIFS.every(w => DIRECT[w.id]));
+  for (const w of A.WHATIFS) {
+    const viaTimeline = A.summarize(A.withEvents(bad, [A.cleanEvent(w.event(bad))])).q, direct = A.summarize({ ...bad, ...DIRECT[w.id] }).q;
+    let worst = 0;
+    for (let x = bad.age; x <= A.MAX_AGE; x++) worst = Math.max(worst, Math.abs(viaTimeline[x] - direct[x]));
+    ok(`preset ${w.id} dated today = editing the input (max |Δq| ${worst.toExponential(1)})`, worst < 1e-12);
+  }
   const fb = A.summarize(bad).le;
   let maxSingle = 0;
-  for (const w of A.WHATIFS) { const g = A.summarize(w.apply(bad)).le - fb; ok(`what-if ${w.id} gains ≥ 0 (${f2(g)})`, g >= 0); maxSingle = Math.max(maxSingle, g); }
-  const all = A.summarize(A.applyWhatIfs(bad, new Set(A.WHATIFS.map(w => w.id)))).le - fb;
+  for (const w of A.WHATIFS) { const g = A.summarize(A.withEvents(bad, [w.event(bad)])).le - fb; ok(`quick change ${w.id} gains ≥ 0 (${f2(g)})`, g >= 0); maxSingle = Math.max(maxSingle, g); }
+  const all = A.summarize(A.withEvents(bad, A.WHATIFS.map(w => A.cleanEvent(w.event(bad))))).le - fb;
   ok('combined gain ≥ largest single gain', all >= maxSingle);
   ok('combined gain substantial for this profile (> 12 y)', all > 12, f2(all));
-  ok('what-if does not mutate the input state', bad.smoke === 'current' && bad.activity === 20);
-  ok('inapplicable ids are ignored', near(A.summarize(A.applyWhatIfs(D, new Set(['quitSmoking']))).le, A.summarize(D).le, 1e-12));
-  ok('healthy-weight change targets BMI 24', near(A.bmiOf(A.WHATIFS.find(w => w.id === 'healthyBmi').apply(bad)), 24, 0.05));
-  ok('quit-smoking change starts at 0 years since quitting', A.WHATIFS.find(w => w.id === 'quitSmoking').apply(bad).quitYears === 0);
+  ok('presets do not mutate the input state', bad.smoke === 'current' && bad.activity === 20 && bad.events === undefined);
+  ok('quitting does nothing for a never-smoker', near(A.summarize(A.withEvents(D, [{ kind: 'quit', age: D.age }])).le, A.summarize(D).le, 1e-12));
+  ok('healthy-weight change targets BMI 24', near(A.bmiOf({ ...bad, weight: A.WHATIFS.find(w => w.id === 'healthyBmi').event(bad).value }), 24, 0.05));
+}
+// Health timeline
+{
+  const P = { ...D, age: 45, smoke: 'current', cigs: '10to19', sbp: 135 };
+  const LE = evs => A.summarize({ ...P, events: A.sortEvents(evs.map(A.cleanEvent)) }).le;
+  const Q = evs => A.summarize({ ...P, events: A.sortEvents(evs.map(A.cleanEvent)) }).q;
+  // No events: exactly the old engine, for every profile used elsewhere in this file
+  for (const prof of [D, P, { ...D, country: 'JPN', sex: 'F', age: 70, diabetes: 'pre', copd: 'moderate' }]) {
+    const q0 = A.summarize(prof).q, q1 = A.summarize({ ...prof, events: [] }).q;
+    ok(`no events = no timeline (${prof.country} ${prof.sex} ${prof.age})`, q0.every((v, i) => v === q1[i]));
+    ok(`stateAt returns the profile itself when there are no events`, A.stateAt({ ...prof, events: [] }, 80).events.length === 0 && A.stateAt(prof, 80) === prof);
+  }
+  // Quit at A: years since quitting at x is x − A
+  const quit50 = { ...P, events: [{ kind: 'quit', age: 50 }] };
+  ok('before quitting, still a smoker', A.stateAt(quit50, 49).smoke === 'current');
+  ok('from the quit age, a former smoker', A.stateAt(quit50, 50).smoke === 'former');
+  for (const x of [50, 57, 80]) { const t = A.stateAt(quit50, x);
+    ok(`quit at 50: years since quitting at ${x} is ${x - 50}`, t.quitYears + (x - P.age) === x - 50); }
+  ok('quit at 50 equals the smoking factor of a former smoker who quit then',
+    near(A.factorMult(A.FACTOR_BY_ID.smoking, A.stateAt(quit50, 70), 70), A.factorMult(A.FACTOR_BY_ID.smoking, { ...P, smoke: 'former', quitYears: P.age - 50 }, 70), 1e-12));
+  const lNow = LE([{ kind: 'quit', age: 45 }]), l50 = LE([{ kind: 'quit', age: 50 }]), l60 = LE([{ kind: 'quit', age: 60 }]), lNever = LE([]);
+  ok(`quitting earlier is worth more: now ${f2(lNow)} > 50 ${f2(l50)} > 60 ${f2(l60)} > never ${f2(lNever)}`, lNow > l50 && l50 > l60 && l60 > lNever);
+  // Diagnosis at A sits between never and already
+  for (const [field, value, today] of [['diabetes', 'yes', 'yes'], ['cvd', '1', true], ['af', '1', true], ['copd', 'moderate', 'moderate'], ['ckd', 'stage3', 'stage3']]) {
+    const at60 = LE([{ kind: 'dx', age: 60, field, value }]), already = A.summarize({ ...P, [field]: today }).le;
+    ok(`${field} at 60: shorter than no diagnosis (${f2(at60)} < ${f2(lNever)})`, at60 < lNever);
+    ok(`${field} at 60: longer than having it today (${f2(at60)} > ${f2(already)})`, at60 > already);
+    const qd = Q([{ kind: 'dx', age: 60, field, value }]), q0 = Q([]);
+    let before = true, after = true;
+    // Onset is stipulated at 60, so the background chance of developing it earlier is
+    // gone: strictly lower hazard before 60 (from the year after today, when that chance
+    // starts to accrue), and certain disease from 60 is no better than a chance of it.
+    for (let x = P.age + 1; x < 60; x++) if (!(qd[x] < q0[x])) before = false;
+    for (let x = 60; x < 100; x++) if (qd[x] < q0[x] - 1e-15) after = false;
+    ok(`${field} at 60: hazard strictly lower before 60 (no background onset), no lower after`, before && after);
+  }
+  ok('a diagnosis you already have changes nothing', near(A.summarize({ ...P, diabetes: 'yes', events: [A.cleanEvent({ kind: 'dx', age: 60, field: 'diabetes', value: 'yes' })] }).le, A.summarize({ ...P, diabetes: 'yes' }).le, 1e-12));
+  ok('prediabetes progression is switched off before a dated diagnosis',
+    A.FACTOR_BY_ID.diabetes.hr(A.stateAt({ ...P, diabetes: 'pre', events: [A.cleanEvent({ kind: 'dx', age: 70, field: 'diabetes', value: 'yes' })] }, 65), 65) === 1.13);
+  // Weight: a straight line from today to the target, then held
+  const w = { ...P, weight: 100, events: [{ kind: 'weight', age: 55, value: 80 }] };
+  ok('weight today unchanged', A.stateAt(w, 45).weight === 100);
+  ok('weight halfway is halfway', near(A.stateAt(w, 50).weight, 90, 1e-9));
+  ok('weight reaches the target at its age and holds', A.stateAt(w, 55).weight === 80 && A.stateAt(w, 90).weight === 80);
+  const w2 = { ...w, events: [...w.events, { kind: 'weight', age: 65, value: 90 }] };
+  ok('a second weight target continues from the first', near(A.stateAt(w2, 60).weight, 85, 1e-9) && A.stateAt(w2, 70).weight === 90);
+  ok('a weight target dated today applies at once', A.stateAt({ ...w, events: [{ kind: 'weight', age: 45, value: 80 }] }, 45).weight === 80);
+  ok('losing weight from BMI 33 is worth years', LE([{ kind: 'weight', age: 50, value: 24 * 1.75 ** 2 }]) > A.summarize(P).le);
+  // Blood pressure: the reading at A is the target, drift continues from A
+  const bp = { ...P, events: [{ kind: 'bp', age: 55, value: 120 }] };
+  ok('BP before the event follows today\'s reading', near(A.sbpAt(A.stateAt(bp, 50), 50), A.sbpAt(P, 50), 1e-9));
+  ok('BP at the event age is the target', near(A.sbpAt(A.stateAt(bp, 55), 55), 120, 1e-9));
+  ok('BP drifts with age from the target', near(A.sbpAt(A.stateAt(bp, 75), 75) - 120, A.interp(A.SBP_MEDIAN, 75) - A.interp(A.SBP_MEDIAN, 55), 1e-9));
+  // Habits
+  const ex = { ...P, activity: 0, events: [{ kind: 'set', age: 50, field: 'activity', value: 300 }] };
+  ok('habit unchanged before its age, changed from it', A.stateAt(ex, 49).activity === 0 && A.stateAt(ex, 50).activity === 300);
+  ok('a later change to the same habit overrides an earlier one',
+    A.stateAt({ ...P, events: A.sortEvents([{ kind: 'set', age: 60, field: 'alcohol', value: 0 }, { kind: 'set', age: 50, field: 'alcohol', value: 20 }]) }, 65).alcohol === 0);
+  ok('retiring at 67 does not count as unemployment', near(LE([{ kind: 'set', age: 67, field: 'work', value: 'notworking' }]), lNever, 1e-12));
+  // Past-dated events count from today
+  ok('an event dated before today counts from today', near(LE([{ kind: 'quit', age: 30 }]), lNow, 1e-12));
+  ok('stateAt does not mutate the plan', (() => { const pl = { ...P, events: [{ kind: 'quit', age: 50 }] }; A.stateAt(pl, 70); return pl.smoke === 'current' && pl.events.length === 1; })());
+  // Contributions still reconcile with a timeline
+  const plan = { ...P, events: A.sortEvents([{ kind: 'quit', age: 50 }, { kind: 'dx', age: 65, field: 'diabetes', value: 'yes' }, { kind: 'set', age: 48, field: 'activity', value: 300 }].map(A.cleanEvent)) };
+  const pf = A.summarize(plan), pc = A.contributions(plan, pf);
+  ok('tornado reconciles with a timeline', near(pc.rows.reduce((t, r) => t + r.years, 0) + pc.interaction, pc.total, 1e-9));
+  ok('the national baseline ignores the timeline', near(A.summarize(plan, { baseline: true }).le, A.summarize(P, { baseline: true }).le, 1e-12));
+  // eventApplies / newEvent
+  ok('eventApplies: quitting needs a smoker', A.eventApplies({ kind: 'quit', age: 50 }, P) && !A.eventApplies({ kind: 'quit', age: 50 }, D));
+  ok('eventApplies: same habit value is inert', !A.eventApplies({ kind: 'set', age: 50, field: 'activity', value: D.activity }, D));
+  for (const k of ['quit', 'weight', 'bp', 'set', 'dx']) {
+    const e = A.newEvent(k, A.withBmi(P, 30));
+    ok(`newEvent(${k}) is valid and dated in the future`, A.cleanEvent(e) !== null && e.age > P.age);
+    ok(`newEvent(${k}) changes something for a typical smoker`, A.eventApplies(e, A.withBmi(P, 30)));
+  }
+  // Validation
+  ok('cleanEvent rejects unknown kinds, fields and values',
+    [{ kind: 'teleport', age: 50 }, { kind: 'set', age: 50, field: 'income', value: 'high' }, { kind: 'set', age: 50, field: 'social', value: 'great' },
+     { kind: 'dx', age: 50, field: 'cancer', value: 'yes' }, { kind: 'weight', age: 50, value: 'heavy' }, { kind: 'quit', age: 'soon' }].every(e => A.cleanEvent(e) === null));
+  ok('cleanEvent clamps ages and values', (() => { const e = A.cleanEvent({ kind: 'set', age: 140, field: 'alcohol', value: 900 }); return e.age === 100 && e.value === 80; })());
+  // Link encoding
+  const all = [{ kind: 'quit', age: 50 }, { kind: 'weight', age: 52, value: 78.5 }, { kind: 'bp', age: 55, value: 124 },
+    { kind: 'set', age: 48, field: 'partnered', value: false }, { kind: 'set', age: 49, field: 'sleep', value: 7.5 },
+    { kind: 'dx', age: 60, field: 'cvd', value: true }, { kind: 'dx', age: 70, field: 'ckd', value: 'stage45' }].map(A.cleanEvent);
+  const enc = A.encodeEvents(A.sortEvents(all));
+  ok('events encode compactly and readably', enc.length < 140 && !/[%&=#]/.test(enc), enc);
+  ok('events round-trip through the link', JSON.stringify(A.decodeEvents(enc)) === JSON.stringify(A.sortEvents(all)), enc);
+  ok('hostile event strings are dropped', A.decodeEvents('x~1,q~abc,s~50~income~high,d~60~cancer~yes,w~50~~,s~50,q~55').length === 1);
+  ok('at most 20 events from a link', A.decodeEvents(Array.from({ length: 30 }, (_, i) => 'q~' + (40 + i)).join(',')).length === 20);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -471,7 +575,7 @@ ok('page initialised with defaults', JSON.stringify(A.state()) === JSON.stringif
   const short = A.KEYS.map(k => A.HASH_KEYS[k]);
   ok('every state key has a hash short name', short.every(v => typeof v === 'string' && v.length >= 1 && v.length <= 3), A.KEYS.filter(k => !A.HASH_KEYS[k]).join());
   ok('hash short names are unique', new Set(short).size === short.length);
-  ok('"wi" is reserved for what-ifs', !short.includes('wi'));
+  ok('"wi" (old what-ifs) and "ev" (timeline) are reserved', !short.includes('wi') && !short.includes('ev'));
 }
 ok('default state writes an empty hash', A.stateToHash() === '');
 ok('init rendered every chart', chartCalls.length >= 3, chartCalls.length);
@@ -491,8 +595,9 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
   ok('tornado bar labels precomputed, one per bar', lbl.length === tornado.data.datasets[0].data.length, lbl.length);
   ok('tornado labels are signed years', lbl.length > 0 && lbl.every(l => /^[+−]?\d+\.\d y( \(off scale\))?$/.test(l)), lbl.join('|'));
   // Every panel after the tornado rendered (a throwing chart would have aborted refreshAll)
-  ok('what-if list rendered', els.whatifList.innerHTML.includes('data-wi='));
-  ok('what-if total rendered', els.whatifTotal.innerHTML.length > 20);
+  ok('quick-change list rendered', els.whatifList.innerHTML.includes('data-preset='));
+  ok('timeline total rendered', els.whatifTotal.innerHTML.length > 20);
+  ok('empty timeline says so', els.tlList.innerHTML.includes('tl-empty'));
   ok('milestone tiles rendered', (els.tiles.innerHTML.match(/class="tile"/g) || []).length === 4);
   ok('percentile tiles rendered', (els.pctTiles.innerHTML.match(/class="tile"/g) || []).length === 6);
   ok('distribution table rendered', els.tblDist.innerHTML.includes('<tr>'));
@@ -510,20 +615,25 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
     education: 17, income: 'middle', work: 'notworking', social: 'moderate', partnered: false, mother: 'a_80s', father: 'd_lt70',
     pm25: 14, improve: true };
   Object.assign(A.state(), sample);
-  A.whatif().add('bp'); A.whatif().add('sleep');
+  const sampleEvents = A.sortEvents([{ kind: 'bp', age: 57, value: 125 }, { kind: 'set', age: 60, field: 'sleep', value: 7.5 }, { kind: 'dx', age: 72, field: 'ckd', value: 'stage3' }].map(A.cleanEvent));
+  A.setEvents(sampleEvents);
   const h = A.stateToHash();
   ok('hash is compact and readable', h.length < 400 && !/%/.test(h), h);
   ok('not-entered numerics stay out of the hash', !/gr=/.test(h));
-  ok('hash carries the what-if selection', /wi=sleep,bp/.test(h), h);
+  ok('hash carries the timeline', /ev=b~57~125,s~60~sleep~7.5,d~72~ckd~stage3/.test(h), h);
   A.resetAll();
-  ok('reset restores defaults', JSON.stringify(A.state()) === JSON.stringify(D) && A.whatif().size === 0);
+  ok('reset restores defaults', JSON.stringify(A.state()) === JSON.stringify(D) && A.events().length === 0);
   ok('applyHash returns true for a non-empty hash', A.applyHash('#' + h) === true);
   ok('hash round-trip restores every key', A.KEYS.every(k => A.state()[k] === sample[k]), A.KEYS.filter(k => A.state()[k] !== sample[k]).join());
-  ok('hash round-trip restores the what-ifs', [...A.whatif()].sort().join() === 'bp,sleep');
+  ok('hash round-trip restores the timeline', JSON.stringify(A.events()) === JSON.stringify(sampleEvents));
+  A.applyHash('#a=50&sm=current&al=20&wi=quitSmoking,alcohol,nuts');
+  ok('old what-if links become changes dated today', A.events().map(e => e.kind + (e.field || '') + '@' + e.age).join() === 'quit@50,setalcohol@50', JSON.stringify(A.events()));
+  A.applyHash('#a=50');
+  ok('a link without ev= has no timeline', A.events().length === 0);
   ok('applyHash returns false for an empty hash', A.applyHash('') === false && A.applyHash('#') === false);
   // Hostile / stale links are validated, not trusted
   A.resetAll();
-  A.applyHash('#c=XXX&s=Q&a=999&h=5&sm=vape&ci=lots&cp=terrible&mo=200&al=-4&vo=abc&gr=999&dm=maybe&wi=nonsense,bp');
+  A.applyHash('#c=XXX&s=Q&a=999&h=5&sm=vape&ci=lots&cp=terrible&mo=200&al=-4&vo=abc&gr=999&dm=maybe&wi=nonsense,bp&ev=zz~1,q~abc,s~99~sleep~7');
   const st = A.state();
   ok('unknown country ignored', st.country === 'USA');
   ok('unknown sex ignored', st.sex === 'M');
@@ -533,7 +643,8 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
   ok('negative alcohol clamped to 0', st.alcohol === 0);
   ok('non-numeric optional stays not-entered, out-of-range optional clamped', st.vo2max === null && st.grip === 90);
   ok('unknown diabetes value ignored', st.diabetes === 'none');
-  ok('unknown what-if ids dropped, known kept', [...A.whatif()].join() === 'bp');
+  ok('unknown what-if ids dropped; bp ignored (sbp at default 120); bad events dropped, good kept',
+    A.events().length === 1 && A.events()[0].field === 'sleep', JSON.stringify(A.events()));
   A.resetAll();
 }
 // Real input handlers (not setState) so a missing key or unit bug is caught
@@ -585,6 +696,55 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
   ok('CSV download triggered', clicks.some(c => c.download === 'life-expectancy-survival.csv'));
   A.exportPng();
   ok('PNG download triggered', clicks.some(c => c.download === 'life-expectancy-survival.png'));
+}
+// Timeline panel: the real add / edit / remove handlers and what they render
+{
+  A.resetAll();
+  Object.assign(A.state(), { smoke: 'current', cigs: '10to19' });
+  const edit = (i, prop, value) => A.onTimelineEdit({ dataset: { ev: String(i), prop }, value: String(value) });
+  const lastLine = () => chartCalls.filter(c => c.type === 'line').pop();
+  const le0 = A.summarize(A.state()).le;
+  A.addEvent(A.WHATIFS.find(w => w.id === 'quitSmoking').event(A.state()));
+  ok('adding a quick change puts it on the timeline, dated today', A.events().length === 1 && A.events()[0].kind === 'quit' && A.events()[0].age === 40);
+  ok('the headline includes the timeline', A.last().full.le > le0 + 3, f2(A.last().full.le - le0));
+  ok('"if nothing changes" is the plan without its timeline', near(A.last().imp.le, le0, 1e-12));
+  ok('survival chart gains the dashed "if nothing changes" line', lastLine().data.datasets.some(d => d.label === 'If nothing changes' && d.borderDash));
+  ok('survival chart marks the event', lastLine().options.plugins.markers.items.some(m => m.label === 'Quit smoking' && m.x === 40));
+  ok('event markers sit at the bottom, left-aligned', lastLine().options.plugins.markers.items.filter(m => m.label === 'Quit smoking').every(m => m.bottom && m.align === 'left'));
+  ok('tornado table tags factors the timeline changes', /Smoking<\/td><td>[^<]*<span class="tl-tag"/.test(els.tblTornado.innerHTML) && (els.tblTornado.innerHTML.match(/tl-tag/g) || []).length === 1);
+  ok('hero mentions the timeline', els.heroSide.innerHTML.includes('health timeline'));
+  ok('timeline lists the event with its own gain', els.tlList.innerHTML.includes('data-prop="age"') && /tl-gain delta-pos"[^>]*>\+\d+\.\d y/.test(els.tlList.innerHTML));
+  ok('a preset already on the timeline leaves the quick list', !els.whatifList.innerHTML.includes('data-preset="quitSmoking"'));
+  ok('timeline total compares with nothing changing', els.whatifTotal.innerHTML.includes('if nothing changes'));
+  edit(0, 'age', 55);
+  ok('editing the age moves the event', A.events()[0].age === 55);
+  ok('quitting later is worth less', A.last().full.le < A.summarize(A.withEvents(A.state(), [{ kind: 'quit', age: 40 }])).le);
+  edit(0, 'age', '');
+  ok('a blank age is ignored, not read as 0', A.events()[0].age === 55);
+  A.addEvent({ kind: 'set', age: 50, field: 'activity', value: 300 });
+  ok('events stay sorted by age', A.events().map(e => e.age).join() === '50,55');
+  edit(0, 'field', 'social');
+  ok('changing the habit picks its suggested value', A.events()[0].field === 'social' && A.events()[0].value === 'strong');
+  ok('an inert event is shown as such', els.tlList.innerHTML.includes('tl-item inert'));
+  edit(0, 'field', 'partnered'); edit(0, 'value', '0');
+  ok('boolean habits store booleans', A.events()[0].value === false);
+  A.state().units = 'imperial';
+  A.addEvent({ kind: 'weight', age: 60, value: 70 });
+  const wi = A.events().findIndex(e => e.kind === 'weight');
+  edit(wi, 'value', 154);
+  ok('imperial weight edits are converted from lb', near(A.events()[wi].value, 69.9, 0.05), A.events()[wi].value);
+  A.state().units = 'metric';
+  A.exportCsv();
+  ok('CSV gains the "if nothing changes" column', blobText.split('\n')[0] === 'age,national_average_alive,you_alive,if_nothing_changes_alive,your_q');
+  const n = A.events().length;
+  A.removeEvent(0);
+  ok('removing deletes exactly that event', A.events().length === n - 1);
+  for (let i = 0; i < 25; i++) A.addEvent({ kind: 'set', age: 60, field: 'sleep', value: 8 });
+  ok('the timeline holds at most 20 events', A.events().length === 20);
+  A.resetAll();
+  ok('timelineFactors finds exactly the factors events touch', [...A.timelineFactors({ ...A.withBmi(D, 30), smoke: 'current', events: A.sortEvents([{ kind: 'quit', age: 50 }, { kind: 'weight', age: 55, value: 70 }, { kind: 'set', age: 60, field: 'nuts', value: 'daily' }, { kind: 'dx', age: 70, field: 'af', value: true }].map(A.cleanEvent)) })].sort().join() === 'af,bmi,nuts,smoking');
+  ok('an inert event touches no factor', A.timelineFactors({ ...D, events: [{ kind: 'quit', age: 50 }] }).size === 0);
+  ok('reset clears the timeline', A.events().length === 0 && !lastLine().data.datasets.some(d => d.label === 'If nothing changes'));
 }
 // Theme
 {
