@@ -3,8 +3,8 @@
 // Regression harness for index.html — run:  osascript -l JavaScript verify.js
 //
 // There is no Node on this machine, so this runs on JavaScriptCore via osascript.
-// It evaluates the REAL script blocks out of index.html (the life-table data block
-// and the app block) against stub DOM/Chart objects, so the assertions below test
+// It evaluates the REAL scripts that index.html loads (data/lifetables.js and js/*.js,
+// in page order) against stub DOM/Chart objects, so the assertions below test
 // the shipped code and cannot drift from it.
 //
 ObjC.import('Foundation');
@@ -74,9 +74,19 @@ var blobText = null;
 function Blob(parts){ this.text = parts.join(''); }
 var URL = { createObjectURL(b){ blobText = b.text; return 'blob:x'; }, revokeObjectURL(){} };
 
-const blocks = src.split('<script>').slice(1).map(b => b.split('</script>')[0]);
-ok('page has three inline script blocks (theme, data, app)', blocks.length === 3, blocks.length);
-const appSrc = blocks[1] + '\n' + blocks[2] + `
+// The app is the local <script src> files, read in the order the page loads them,
+// so a file the page doesn't load isn't tested either.
+function readFile(rel) {
+  const s = $.NSString.stringWithContentsOfFileEncodingError($(CWD + '/' + rel), $.NSUTF8StringEncoding, $());
+  if (s.isNil()) throw new Error('cannot read ' + rel);
+  return ObjC.unwrap(s);
+}
+const inline = src.split('<script>').slice(1).map(b => b.split('</script>')[0]);
+ok('page has one inline script block (theme, before first paint)', inline.length === 1, inline.length);
+const scriptFiles = [...src.matchAll(/<script src="([^":]+)"><\/script>/g)].map(m => m[1]);
+ok('page loads the data, engine, state, ui and main scripts in order',
+  scriptFiles.join() === 'data/lifetables.js,js/engine.js,js/state.js,js/ui.js,js/main.js', scriptFiles.join());
+const appSrc = scriptFiles.map(readFile).join('\n') + `
 ;({ summarize, adjustedQ, survival, lifeExp, ageAtPct, contributions, applyWhatIfs, WHATIFS, FACTORS, FACTOR_BY_ID,
    factorMult, atten, baseQ, bmiOf, bmiHR, actHR, alcHR, sleepHR, sbpHR, fvHR, formerHR, interp, devProb, sbpAt,
    DEFAULTS, KEYS, HASH_KEYS, LIFETABLES, PREV, PARENT_HR, PARENT_DIST, PARENT_CODES, ALIVE_AGE, parentHR, SMOKE_HR, SMOKE_SPLIT, AGE_PREV,
