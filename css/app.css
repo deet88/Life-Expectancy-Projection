@@ -9,6 +9,7 @@
      (deutan ΔE 4.0), so gains are drawn in the accent and losses in red. */
   --chart-you: #5d6af0; --chart-improved: #16a34a; --chart-avg: #7a8499;
   --chart-gain: #5d6af0; --chart-loss: #f04f5a; --chart-grid: rgba(255,255,255,.06);
+  --life-1: #4f46e5; --life-2: #6366f1; --life-3: #818cf8; --life-4: #a5b4fc; --life-5: #c7d2fe;  /* earlier → later death; ordinal, validated on --surface */
   --radius: 10px; color-scheme: dark;
 }
 :root[data-theme="light"] {
@@ -19,6 +20,7 @@
   --hover: rgba(20,30,60,.03); --line-faint: rgba(20,30,60,.06);
   --chart-you: #4d5ae3; --chart-improved: #15803d; --chart-avg: #5c6577;
   --chart-gain: #4d5ae3; --chart-loss: #d02f3d; --chart-grid: rgba(20,30,60,.08);
+  --life-1: #9ca9fb; --life-2: #7d87f6; --life-3: #6366f1; --life-4: #4f46e5; --life-5: #3730a3;
   color-scheme: light;
 }
 body, header, .sidebar, .panel, .method-panel, .tile {
@@ -236,3 +238,55 @@ footer { text-align: center; font-size: 11px; color: var(--faint); padding: 10px
   .panel, .method-panel, .tile { break-inside: avoid; border-color: #ccc; }
   a[href]::after { content: none; }
 }
+
+/* ── Tabs ─────────────────────────────────────────────────────────────── */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5;
+  background: var(--bg); padding-top: 2px; overflow-x: auto; }
+.tabs button { background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); font: inherit;
+  font-size: 12px; font-weight: 600; padding: 8px 12px; cursor: pointer; white-space: nowrap; }
+.tabs button:hover { color: var(--text); }
+.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+@media print { [data-tab][hidden] { display: block !important; } .tabs { display: none; } }
+
+/* ── Longevity score ──────────────────────────────────────────────────── */
+.score-grid { display: grid; grid-template-columns: 150px 1fr; gap: 20px; align-items: center; }
+.score-dial { text-align: center; padding: 14px 0; border-radius: var(--radius); background: var(--card2); border: 1px solid var(--border); }
+.score-num { font-size: 52px; font-weight: 800; color: var(--strong); letter-spacing: -.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+.score-of { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.pillars { display: flex; flex-direction: column; gap: 6px; }
+.pillar { display: grid; grid-template-columns: 110px 1fr 64px; gap: 10px; align-items: center; font-size: 12px; color: var(--text); }
+.pillar .track { position: relative; height: 12px; }
+.pillar .track::before { content: ''; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--border2); }
+.pillar .bar { position: absolute; top: 0; height: 12px; border-radius: 0 4px 4px 0; }
+.pillar .bar.neg { border-radius: 4px 0 0 4px; }
+.pillar .pts { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.bottom-line { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 13px; color: var(--text); display: flex; flex-direction: column; gap: 4px; }
+.bottom-line b { color: var(--strong); }
+.hint { font-size: 11px; color: var(--muted); margin-top: 8px; }
+
+/* ── Alerts, blind spots, levers ──────────────────────────────────────── */
+.alert-list, .lever-list { display: flex; flex-direction: column; gap: 6px; }
+.alert { padding: 8px 10px; border-radius: 7px; background: var(--card2); border: 1px solid var(--border); border-left: 3px solid var(--border2); font-size: 12px; }
+.alert.risk { border-left-color: var(--chart-loss); }
+.alert.unknown { border-left-color: var(--accent); }
+.alert-title { display: flex; justify-content: space-between; gap: 8px; font-weight: 700; color: var(--text); }
+.alert-title .yrs { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.alert p { color: var(--muted); margin-top: 3px; font-size: 11px; line-height: 1.45; }
+.lever { display: grid; grid-template-columns: 1fr 72px 110px auto; gap: 10px; align-items: center; padding: 8px 10px;
+  border-radius: 7px; background: var(--card2); border: 1px solid var(--border); font-size: 12px; color: var(--text); }
+.lever .gain { font-weight: 700; color: var(--accent-light); text-align: right; font-variant-numeric: tabular-nums; }
+.lever .together { font-size: 11px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.lever button { padding: 3px 8px; font-size: 11px; }
+.lever-head { display: grid; grid-template-columns: 1fr 72px 110px auto; gap: 10px; padding: 0 10px; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.lever-head span:nth-child(2), .lever-head span:nth-child(3) { text-align: right; }
+.lever-head span:last-child { width: 48px; }
+
+/* ── 100 lifetimes ────────────────────────────────────────────────────── */
+.dots { display: grid; grid-template-columns: repeat(10, 1fr); gap: 6px; max-width: 360px; }
+.dot { aspect-ratio: 1; border-radius: 50%; }
+.dots-legend { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--text); }
+.dots-legend div { display: grid; grid-template-columns: 14px 1fr auto; gap: 8px; align-items: center; }
+.dots-legend i { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.dots-legend b { font-variant-numeric: tabular-nums; }
+@media (max-width: 900px) { .score-grid { grid-template-columns: 1fr; } .pillar { grid-template-columns: 90px 1fr 56px; }
+  .lever, .lever-head { grid-template-columns: 1fr 60px auto; } .lever .together, .lever-head span:nth-child(3) { display: none; } }

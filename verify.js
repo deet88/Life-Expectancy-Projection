@@ -84,17 +84,17 @@ function readFile(rel) {
 const inline = src.split('<script>').slice(1).map(b => b.split('</script>')[0]);
 ok('page has one inline script block (theme, before first paint)', inline.length === 1, inline.length);
 const scriptFiles = [...src.matchAll(/<script src="([^":]+)"><\/script>/g)].map(m => m[1]);
-ok('page loads the data, engine, timeline, state, ui and main scripts in order',
-  scriptFiles.join() === 'data/lifetables.js,js/engine.js,js/timeline.js,js/state.js,js/ui.js,js/main.js', scriptFiles.join());
+ok('page loads the data, engine, timeline, insights, state, ui and main scripts in order',
+  scriptFiles.join() === 'data/lifetables.js,js/engine.js,js/timeline.js,js/insights.js,js/state.js,js/ui.js,js/main.js', scriptFiles.join());
 const appSrc = scriptFiles.map(readFile).join('\n') + `
-;({ summarize, adjustedQ, survival, lifeExp, ageAtPct, contributions, WHATIFS, withEvents, stateAt, cleanEvent, sortEvents, eventApplies, newEvent, encodeEvents, decodeEvents, describeEvent, shortEvent, timelineFactors, TL_SET, TL_DX, SBP_MEDIAN, FACTORS, FACTOR_BY_ID,
+;({ summarize, adjustedQ, survival, lifeExp, ageAtPct, contributions, WHATIFS, withEvents, stateAt, cleanEvent, sortEvents, eventApplies, newEvent, encodeEvents, decodeEvents, describeEvent, shortEvent, timelineFactors, longevityScore, wholeParts, blindSpots, levers, alerts, lifetimes, bottomLine, PILLARS, LIFETIME_BANDS, BLIND_SPOTS, SCORE_PER_YEAR, setTab, TABS, TL_SET, TL_DX, SBP_MEDIAN, FACTORS, FACTOR_BY_ID,
    factorMult, atten, baseQ, bmiOf, bmiHR, actHR, alcHR, sleepHR, sbpHR, fvHR, formerHR, interp, devProb, sbpAt,
    DEFAULTS, KEYS, HASH_KEYS, LIFETABLES, PREV, PARENT_HR, PARENT_DIST, PARENT_CODES, ALIVE_AGE, parentHR, SMOKE_HR, SMOKE_SPLIT, AGE_PREV,
    CALIBRATIONS, withBmi, diffLE, MAX_AGE, MAX_MULT, MIN_MULT, SOFT_FROM, GROUP_CAPS, BASE_YR, VASC_SHARE,
    stateToHash, applyHash, hashParams, clampState, onInput, onModeBtn, resetAll, syncControls, refreshAll,
    toggleTheme, exportCsv, exportPng, renderFactorTable, renderCalibration,
    addEvent, removeEvent, onTimelineEdit, plan,
-   state: () => state, events: () => events, setEvents: v => { events = v; }, last: () => last })`;
+   state: () => state, events: () => events, tab: () => tab, setEvents: v => { events = v; }, last: () => last })`;
 const A = eval(appSrc);
 
 const COUNTRIES = Object.keys(A.LIFETABLES.countries);
@@ -565,6 +565,55 @@ for (const p of [D, { ...D, age: 70, smoke: 'current', cigs: 'ge20', diabetes: '
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// 6b. Insights: score, levers, blind spots, alerts, lifetimes
+// ═══════════════════════════════════════════════════════════════════════════
+{
+  const profiles = [D, { ...D, age: 55, smoke: 'current', cigs: 'ge20', sbp: 150, alcohol: 25, social: 'isolated', diabetes: 'pre' },
+    A.withBmi({ ...D, age: 30, activity: 400, vo2max: 52, strength: '3plus', nuts: 'daily', fruitveg: 6 }, 22),
+    { ...D, country: 'JPN', sex: 'F', age: 75, copd: 'moderate', events: A.sortEvents([A.cleanEvent({ kind: 'set', age: 76, field: 'activity', value: 300 })]) }];
+  const grouped = new Set(A.PILLARS.flatMap(p => p.groups));
+  ok('every factor belongs to exactly one pillar', A.FACTORS.every(f => A.PILLARS.filter(p => p.groups.includes(f.group)).length === 1), A.FACTORS.filter(f => !grouped.has(f.group)).map(f => f.id).join());
+  for (const pr of profiles) {
+    const full = A.summarize(pr), base = A.summarize(pr, { baseline: true }), c = A.contributions(pr, full), sc = A.longevityScore(c);
+    const tag = `${pr.country} ${pr.sex} ${pr.age}`;
+    ok(`score is 50 + 5 × years vs average (${tag}: ${f2(sc.raw)})`, near(sc.raw, 50 + A.SCORE_PER_YEAR * (full.le - base.le), 1e-9));
+    ok(`pillars + interaction reconcile to the score (${tag})`, near(50 + sc.pillars.reduce((t, p) => t + p.points, 0) + sc.interaction, sc.raw, 1e-9));
+    ok(`printed whole-point terms add up to the shown score (${tag})`, 50 + sc.pillars.reduce((t, p) => t + p.shown, 0) + sc.interactionShown === Math.round(sc.raw));
+    ok(`each printed term is within a point of its exact value (${tag})`, sc.pillars.every(p => Math.abs(p.shown - p.points) < 1) && Math.abs(sc.interactionShown - sc.interaction) < 1);
+    const lt = A.lifetimes(full.S, pr.age);
+    ok(`100 lifetimes, in order, nobody dying today (${tag})`, lt.ages.length === 100 && lt.ages.every((a, i) => i === 0 || a >= lt.ages[i - 1]) && lt.ages[0] > pr.age);
+    ok(`lifetime bands count all 100 (${tag})`, lt.bands.reduce((t, b) => t + b.n, 0) === 100);
+    const r90 = lt.ages.filter(a => a >= 90).length;
+    ok(`dots reaching 90 match the survival curve (${tag}: ${r90} vs ${f2(100 * full.reach(90))})`, Math.abs(r90 - 100 * full.reach(90)) <= 1);
+    ok(`the middle dots straddle the median (${tag})`, lt.ages[49] <= full.median + 1e-9 && lt.ages[50] >= full.median - 1e-9);
+    const lev = A.levers(pr, full);
+    ok(`levers ranked by gain (${tag})`, lev.every((l, i) => i === 0 || l.gain <= lev[i - 1].gain + 1e-12));
+    ok(`levers' running total never falls, and starts at the top lever (${tag})`, lev.every((l, i) => i === 0 ? near(l.together, l.gain, 1e-9) : l.together >= lev[i - 1].together - 1e-9));
+    const spots = A.blindSpots(pr);
+    ok(`blind spots list only unanswered inputs, ranked, all ≥ 0 (${tag})`, spots.every((b, i) => A.BLIND_SPOTS.find(x => x.key === b.key).unset(pr) && b.swing >= 0 && (i === 0 || b.swing <= spots[i - 1].swing)));
+    const al = A.alerts(pr, full, c), risks = al.filter(a => a.level === 'risk' && a.years !== undefined);
+    ok(`risk alerts are the worst factors, at most 4, each ≤ −0.3 y (${tag})`, risks.length <= 4 && risks.every((a, i) => a.years <= -0.3 && (i === 0 || a.years >= risks[i - 1].years)));
+  }
+  const bad = profiles[1], fb = A.summarize(bad), cb = A.contributions(bad, fb);
+  ok('smoker: first alert is smoking', A.alerts(bad, fb, cb)[0].factor === 'smoking');
+  { const q = { ...bad, events: [{ kind: 'quit', age: 60 }] }, fq = A.summarize(q), sm = A.alerts(q, fq, A.contributions(q, fq)).find(a => a.factor === 'smoking');
+    ok('a smoker already quitting on the timeline is told so, not told to add it', sm && /quitting at 60/.test(sm.text) && !/try it on the timeline/.test(sm.text)); }
+  ok('prediabetes: exactly one alert, carrying the prediabetes advice', (() => { const d = A.alerts(bad, fb, cb).filter(a => a.factor === 'diabetes'); return d.length === 1 && /Prevention Program/.test(d[0].text); })());
+  { const mild = { ...D, diabetes: 'pre' }, fm = A.summarize(mild), d = A.alerts(mild, fm, A.contributions(mild, fm)).filter(a => a.factor === 'diabetes');
+    ok('prediabetes is flagged even when its row is small', d.length === 1 && /Prevention Program/.test(d[0].text)); }
+  ok('diet questions are separate blind spots, each a single question', ['nuts', 'grains', 'meat', 'sugary', 'coffee'].every(k => A.blindSpots(D).some(b => b.key === k)) && !A.blindSpots(D).some(b => b.key === 'diet'));
+  ok('smoker: bottom line names the drag and the lever', (() => { const l = A.bottomLine(bad, fb, A.summarize(bad, { baseline: true }), A.longevityScore(cb), A.levers(bad, fb), A.blindSpots(bad), cb).join(' '); return /smoking/.test(l) && /lever is “quit smoking”/.test(l); })());
+  ok('smoker scores below the same person not smoking', A.longevityScore(cb).raw < A.longevityScore(A.contributions({ ...bad, smoke: 'never' }, A.summarize({ ...bad, smoke: 'never' }))).raw);
+  ok('an inert timeline change is flagged', A.alerts({ ...D, events: [{ kind: 'quit', age: 50 }] }, A.summarize(D), A.contributions(D, A.summarize(D))).some(a => a.level === 'note' && /does nothing/.test(a.title)));
+  ok('VO₂max is a blind spot until entered', A.blindSpots(D).some(b => b.key === 'vo2max') && !A.blindSpots({ ...D, vo2max: 40 }).some(b => b.key === 'vo2max'));
+  ok('not knowing VO₂max is worth over half a year either way', A.blindSpots(D).find(b => b.key === 'vo2max').swing > 0.5);
+  ok('a lever already on the timeline is not offered again', !A.levers({ ...bad, events: [{ kind: 'quit', age: 60 }] }, fb).some(l => l.id === 'quitSmoking'));
+  const fake = (total, inter) => A.longevityScore({ rows: [], total, interaction: inter });
+  ok('score clamps at 100 and 0, and says so', fake(15, 15).score === 100 && fake(15, 15).clamped && fake(-12, -12).score === 0 && !fake(4, 4).clamped);
+  ok('wholeParts: sums to the target, each within 1', [[[1.4, 2.4, 3.4], 7], [[-0.6, -0.6, 1.7], 1], [[0.5, 0.5], 1], [[-2.5, 0.2], -2]].every(([v, t]) => { const w = A.wholeParts(v, t); return w.reduce((a, b) => a + b, 0) === t && w.every((x, i) => Math.abs(x - v[i]) < 1); }));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // 7. State, hash round-trip, input handlers, export
 // ═══════════════════════════════════════════════════════════════════════════
 ok('page initialised with defaults', JSON.stringify(A.state()) === JSON.stringify(D));
@@ -595,7 +644,11 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
   ok('tornado bar labels precomputed, one per bar', lbl.length === tornado.data.datasets[0].data.length, lbl.length);
   ok('tornado labels are signed years', lbl.length > 0 && lbl.every(l => /^[+−]?\d+\.\d y( \(off scale\))?$/.test(l)), lbl.join('|'));
   // Every panel after the tornado rendered (a throwing chart would have aborted refreshAll)
-  ok('quick-change list rendered', els.whatifList.innerHTML.includes('data-preset='));
+  ok('levers list rendered', els.leverList.innerHTML.includes('data-preset='));
+  ok('score rendered (number, header, five pillars, formula, bottom line)', /^\d{1,3}$/.test(els.scoreNum.textContent) && els.hsScore.textContent === els.scoreNum.textContent
+    && (els.pillars.innerHTML.match(/class="pillar"/g) || []).length === 5 && els.scoreFormula.innerHTML.includes('= ' + els.scoreNum.textContent) && els.bottomLine.innerHTML.includes('Longevity Score'));
+  ok('alerts and blind spots rendered', els.alertList.innerHTML.includes('class="alert') && els.blindList.innerHTML.includes('alert unknown'));
+  ok('100 lifetimes rendered: 100 dots, 5 legend rows', (els.dots.innerHTML.match(/class="dot"/g) || []).length === 100 && (els.dotsLegend.innerHTML.match(/<div>/g) || []).length === 5);
   ok('timeline total rendered', els.whatifTotal.innerHTML.length > 20);
   ok('empty timeline says so', els.tlList.innerHTML.includes('tl-empty'));
   ok('milestone tiles rendered', (els.tiles.innerHTML.match(/class="tile"/g) || []).length === 4);
@@ -630,6 +683,12 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
   ok('old what-if links become changes dated today', A.events().map(e => e.kind + (e.field || '') + '@' + e.age).join() === 'quit@50,setalcohol@50', JSON.stringify(A.events()));
   A.applyHash('#a=50');
   ok('a link without ev= has no timeline', A.events().length === 0);
+  A.applyHash('#a=50&tab=lifespan');
+  ok('a link can open on a tab', A.tab() === 'lifespan' && /tab=lifespan/.test(A.stateToHash()));
+  A.applyHash('#a=50&tab=secrets');
+  ok('an unknown tab falls back to the overview, and stays out of the link', A.tab() === 'overview' && !/tab=/.test(A.stateToHash()));
+  A.setTab('nonsense', true);
+  ok('setTab rejects unknown tabs', A.tab() === 'overview');
   ok('applyHash returns false for an empty hash', A.applyHash('') === false && A.applyHash('#') === false);
   // Hostile / stale links are validated, not trusted
   A.resetAll();
@@ -714,7 +773,7 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
   ok('tornado table tags factors the timeline changes', /Smoking<\/td><td>[^<]*<span class="tl-tag"/.test(els.tblTornado.innerHTML) && (els.tblTornado.innerHTML.match(/tl-tag/g) || []).length === 1);
   ok('hero mentions the timeline', els.heroSide.innerHTML.includes('health timeline'));
   ok('timeline lists the event with its own gain', els.tlList.innerHTML.includes('data-prop="age"') && /tl-gain delta-pos"[^>]*>\+\d+\.\d y/.test(els.tlList.innerHTML));
-  ok('a preset already on the timeline leaves the quick list', !els.whatifList.innerHTML.includes('data-preset="quitSmoking"'));
+  ok('a preset already on the timeline leaves the levers list', !els.leverList.innerHTML.includes('data-preset="quitSmoking"'));
   ok('timeline total compares with nothing changing', els.whatifTotal.innerHTML.includes('if nothing changes'));
   edit(0, 'age', 55);
   ok('editing the age moves the event', A.events()[0].age === 55);

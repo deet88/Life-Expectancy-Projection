@@ -6,13 +6,18 @@ function refreshAll() {
   const periodLE = p.improve ? summarize({ ...p, improve: false }).le : full.le;
   const imp = events.length ? summarize({ ...p, events: [] }) : null;   // "if nothing changes"
   const contrib = contributions(p, full);
-  last = { full, base, imp, contrib };
+  const sc = longevityScore(contrib), lev = levers(p, full), spots = blindSpots(p);
+  last = { full, base, imp, contrib, sc, lev, spots };
   renderHero(full, base, contrib, imp, periodLE);
   renderGroupSummaries();
   renderSurvival(full, base, imp);
   renderTiles(full, base);
   renderTornado(contrib);
   renderTimeline(full, imp);
+  renderScore(sc, bottomLine(p, full, base, sc, lev, spots, contrib));
+  renderAlerts(alerts(p, full, contrib), spots);
+  renderLevers(lev);
+  renderLifetimes(full);
   renderDist(full);
   syncURL();
 }
@@ -34,11 +39,13 @@ function init() {
   });
   syncThemeBtn();
   bindTimeline();
+  document.querySelectorAll('[data-tabbtn]').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tabbtn)));
   renderFactorTable();
   renderCalibration();
   applyHash(location.hash);
   syncControls();
   refreshAll();
-  addEventListener('hashchange', () => { if (applyHash(location.hash)) { syncControls(); refreshAll(); } });
+  setTab(tab, true);
+  addEventListener('hashchange', () => { if (applyHash(location.hash)) { syncControls(); refreshAll(); setTab(tab, true); } });
 }
 init();

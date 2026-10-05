@@ -38,6 +38,10 @@
         <div class="hstat-value dyn" id="hsLE" aria-live="polite">—</div>
       </div>
       <div class="hstat">
+        <div class="hstat-label">Longevity score</div>
+        <div class="hstat-value" id="hsScore">—</div>
+      </div>
+      <div class="hstat">
         <div class="hstat-label">vs national average</div>
         <div class="hstat-value" id="hsDelta">—</div>
       </div>
@@ -430,7 +434,15 @@
   <!-- ═══════════ Main ═══════════ -->
   <main class="main">
 
-    <section class="panel">
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button type="button" role="tab" data-tabbtn="overview">Overview</button>
+      <button type="button" role="tab" data-tabbtn="factors">Factors</button>
+      <button type="button" role="tab" data-tabbtn="timeline">Timeline</button>
+      <button type="button" role="tab" data-tabbtn="lifespan">Lifespan</button>
+      <button type="button" role="tab" data-tabbtn="method">Methodology</button>
+    </nav>
+
+    <section class="panel" data-tab="overview">
       <div class="hero">
         <div>
           <div class="hero-label">Your estimated life expectancy</div>
@@ -440,13 +452,28 @@
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" data-tab="overview">
+      <div class="panel-head">
+        <h2>Longevity score</h2>
+        <p>50 is exactly the national average for your age, sex and country · each year above or below it is 5 points</p>
+      </div>
+      <div class="score-grid">
+        <div class="score-dial"><div class="score-num" id="scoreNum">—</div><div class="score-of">/ 100</div></div>
+        <div>
+          <div class="pillars" id="pillars"></div>
+          <p class="hint" id="scoreFormula"></p>
+        </div>
+      </div>
+      <div class="bottom-line" id="bottomLine"></div>
+    </section>
+
+    <section class="panel" data-tab="overview">
       <div class="panel-head">
         <h2>Survival curve</h2>
         <p>Probability of still being alive at each age, from today</p>
       </div>
       <div class="chart-wrap chart-main">
-        <canvas id="chSurv" role="img" aria-label="Survival curve: probability of being alive at each age for you, the national average and the what-if scenario. The same figures are in the table below the chart."></canvas>
+        <canvas id="chSurv" role="img" aria-label="Survival curve: probability of being alive at each age for you, the national average and, with a health timeline, if nothing changes. The same figures are in the table below the chart."></canvas>
       </div>
       <div class="legend" id="legSurv"></div>
       <details class="tbl">
@@ -455,7 +482,7 @@
       </details>
     </section>
 
-    <section class="panel">
+    <section class="panel" data-tab="overview">
       <div class="panel-head">
         <h2>Milestones</h2>
         <p>Chance of reaching each age, with the national average for someone your age and sex</p>
@@ -463,7 +490,18 @@
       <div class="tiles" id="tiles"></div>
     </section>
 
-    <section class="panel">
+    <section class="panel" data-tab="factors">
+      <div class="panel-head">
+        <h2>Alerts &amp; blind spots</h2>
+        <p>What costs you the most, and what you haven't told the model that could move it most</p>
+      </div>
+      <div class="two-col">
+        <div><div class="sub-head">Alerts</div><div class="alert-list" id="alertList"></div></div>
+        <div><div class="sub-head">Worth finding out</div><div class="alert-list" id="blindList"></div></div>
+      </div>
+    </section>
+
+    <section class="panel" data-tab="factors">
       <div class="panel-head">
         <h2>What each factor is worth</h2>
         <p>Years of life expectancy gained or lost versus the national average, one factor at a time</p>
@@ -479,7 +517,15 @@
       </div>
     </section>
 
-    <section class="panel" id="timelinePanel">
+    <section class="panel" data-tab="timeline" id="leversPanel">
+      <div class="panel-head">
+        <h2>Biggest levers</h2>
+        <p>Each change alone, started today, on top of your timeline · “together” stacks the ones above it</p>
+      </div>
+      <div class="lever-list" id="leverList"></div>
+    </section>
+
+    <section class="panel" data-tab="timeline" id="timelinePanel">
       <div class="panel-head">
         <h2>Health timeline</h2>
         <p>Changes you plan, or things that might happen, at the age they happen. Your estimate includes them; the dashed line on the survival curve is what happens if nothing changes.</p>
@@ -498,14 +544,26 @@
           <div class="whatif-total" id="whatifTotal"></div>
         </div>
         <div>
-          <div class="sub-head">Quick add, starting now</div>
-          <div class="whatif-list" id="whatifList"></div>
-          <div class="note-box" style="margin-top:12px" id="whatifNote"></div>
+          <div class="note-box" id="whatifNote"></div>
         </div>
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" data-tab="lifespan">
+      <div class="panel-head">
+        <h2>100 lifetimes like yours</h2>
+        <p>One dot per person, in order of age at death, read exactly from your survival curve</p>
+      </div>
+      <div class="two-col">
+        <div class="dots" id="dots" role="img" aria-label="100 dots, one per person like you, shaded by the age they die; the counts are listed beside it."></div>
+        <div>
+          <div class="dots-legend" id="dotsLegend"></div>
+          <p class="hint" id="dotsNote"></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" data-tab="lifespan">
       <div class="panel-head">
         <h2>When, not just how long</h2>
         <p>Distribution of your age at death — the survival curve's slope</p>
@@ -525,7 +583,7 @@
     </section>
 
     <!-- Methodology, Data Sources & Limitations -->
-    <div class="method-panel" id="method">
+    <div class="method-panel" id="method" data-tab="method">
       <h2>⚠ Methodology, Data Sources &amp; Limitations</h2>
       <div class="method-grid">
         <div class="method-section">
@@ -594,6 +652,7 @@
 <script src="data/lifetables.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/timeline.js"></script>
+<script src="js/insights.js"></script>
 <script src="js/state.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/main.js"></script>

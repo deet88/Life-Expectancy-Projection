@@ -314,15 +314,6 @@ function renderTimeline(full, still) {
     $('whatifTotal').innerHTML = `Your timeline takes your life expectancy from <b>${fmt1(still.le)}</b> if nothing changes to <b>${fmt1(full.le)}</b><span class="big ${deltaClass(d)}">${signed(d)} y</span>`;
   } else $('whatifTotal').innerHTML = 'Each change counts from the age you give it, and the survival curve gains a dashed <b>if nothing changes</b> line to compare against.';
 
-  const have = new Set(events.map(e => e.kind + (e.field || '')));
-  const presets = WHATIFS.filter(w => w.applies(state)).filter(w => { const e = w.event(state); return !have.has(e.kind + (e.field || '')); });
-  $('whatifList').innerHTML = presets.length ? presets.map(w => {
-    const gain = summarize(withEvents(plan(), [cleanEvent(w.event(state))])).le - full.le;
-    return `<div class="whatif-item"><label>${w.label}</label>
-      <span class="gain ${gain < 0.05 ? 'zero' : ''}">${gain < 0.05 ? '< 0.1' : '+' + fmt1(gain)} y</span>
-      <button type="button" class="btn" data-preset="${w.id}" aria-label="Add ${w.label} to the timeline">+ Add</button></div>`;
-  }).join('') : '<div class="note-box">Every modifiable factor is already at or beyond its target, or already on your timeline.</div>';
-
   $('whatifNote').innerHTML = '<b>Why individual gains don\'t add up:</b> each figure is the gain from that change alone. Applied together, the factors multiply, and a later change works on a lower remaining risk, so the total is a little less than the sum.'
     + (state.smoke === 'current' ? ' Quitting smoking is modelled as it happens in life: the excess risk fades over the following years, so the earlier you quit, the more of the loss you win back.' : '')
     + (events.some(e => e.kind === 'dx') ? ' <b>A diagnosis on the timeline is a "what if"</b>, not a prediction: your estimate already prices in the average chance of developing each condition, and a dated diagnosis replaces that chance with certainty at that age.' : '')
@@ -354,9 +345,67 @@ function bindTimeline() {
     const t = ev.target.closest ? ev.target.closest('button') : ev.target;
     if (!t || !t.dataset) return;
     if (t.dataset.del !== undefined) removeEvent(+t.dataset.del);
-    else if (t.dataset.preset) addEvent(WHATIFS.find(w => w.id === t.dataset.preset).event(state));
     else if (t.id === 'tlAddBtn') addEvent(newEvent($('tlAddKind').value, state));
   });
+  $('leversPanel').addEventListener('click', ev => {
+    const t = ev.target.closest ? ev.target.closest('button') : ev.target;
+    if (t && t.dataset && t.dataset.preset) addEvent(WHATIFS.find(w => w.id === t.dataset.preset).event(state));
+  });
+}
+
+// ── Longevity score, alerts, levers, lifetimes ─────────────────────────────
+function renderScore(sc, lines) {
+  $('scoreNum').textContent = sc.score; $('hsScore').textContent = sc.score;
+  const scale = Math.max(10, ...sc.pillars.map(p => Math.abs(p.points)));
+  const bar = pts => { const w = Math.abs(pts) / scale * 50;
+    return `<span class="bar ${pts < 0 ? 'neg' : ''}" style="${pts < 0 ? `right:50%` : `left:50%`};width:${w}%;background:var(${pts < 0 ? '--chart-loss' : '--chart-gain'})"></span>`; };
+  const pts = v => (Math.round(v) > 0 ? '+' : Math.round(v) < 0 ? '−' : '') + Math.abs(Math.round(v));
+  $('pillars').innerHTML = sc.pillars.map(p => `<div class="pillar" title="${p.label}: ${signed(p.years)} years versus the average (${p.factors.map(id => FACTOR_BY_ID[id].label).join(', ')})">
+      <span>${p.label}</span><span class="track">${bar(p.points)}</span><span class="pts">${pts(p.shown)} pts</span></div>`).join('');
+  const term = v => (v < 0 ? '− ' : '+ ') + Math.abs(v);
+  $('scoreFormula').innerHTML = `Score = 50 + ${SCORE_PER_YEAR} × (years versus the national average) = 50 ${sc.pillars.map(p => term(p.shown)).join(' ')} ${term(sc.interactionShown)} (interaction)`
+    + (sc.clamped ? ` = ${Math.round(sc.raw)}, shown as ${sc.score} (the scale stops at 0 and 100).` : ` = ${sc.score}.`)
+    + ' Each pillar is the sum of its factors in <i>What each factor is worth</i>.';
+  $('bottomLine').innerHTML = lines.map(l => `<span>${escapeHtml(l)}</span>`).join('');
+}
+function renderAlerts(al, spots) {
+  $('alertList').innerHTML = al.length ? al.map(a => `<div class="alert ${a.level}">
+      <div class="alert-title"><span>${escapeHtml(a.title)}</span>${a.years !== undefined ? `<span class="yrs ${deltaClass(a.years)}">${signed(a.years)} y</span>` : ''}</div>
+      <p>${escapeHtml(a.text)}</p></div>`).join('')
+    : '<div class="alert"><div class="alert-title">Nothing costs you more than a few months</div><p>No factor on your profile is worse than the national average by 0.3 years or more.</p></div>';
+  const top = spots.slice(0, 4);
+  $('blindList').innerHTML = top.length ? top.map(b => `<div class="alert unknown">
+      <div class="alert-title"><span>${escapeHtml(b.label)}</span><span class="yrs" title="Life expectancy at a typical good answer minus a typical poor one">± ${fmt1(b.swing / 2)} y</span></div>
+      <p>${escapeHtml(b.how)} A typical good answer versus a typical poor one moves your estimate by ${fmt1(b.swing)} years.</p></div>`).join('')
+    : '<div class="alert"><div class="alert-title">You have answered everything</div><p>Every optional input is filled in.</p></div>';
+}
+function renderLevers(lev) {
+  $('leverList').innerHTML = lev.length ? '<div class="lever-head"><span>Change</span><span>Alone</span><span>Together</span><span></span></div>'
+    + lev.map(l => `<div class="lever"><span>${l.label}</span>
+      <span class="gain">${l.gain < 0.05 ? '< 0.1' : '+' + fmt1(l.gain)} y</span>
+      <span class="together" title="This and every change above it, together">+${fmt1(l.together)} y</span>
+      <button type="button" class="btn" data-preset="${l.id}" aria-label="Add ${l.label} to the timeline">+ Add</button></div>`).join('')
+    : '<div class="note-box">Every modifiable factor is already at or beyond its target, or already on your timeline.</div>';
+}
+function renderLifetimes(full) {
+  const lt = lifetimes(full.S, state.age);
+  const band = a => LIFETIME_BANDS.findIndex(([lo, hi]) => a >= lo && a < hi) + 1;
+  $('dots').innerHTML = lt.ages.map((a, i) => `<span class="dot" style="background:var(--life-${band(a)})" title="Person ${i + 1} of 100: dies at ${Math.floor(a)}"></span>`).join('');
+  $('dotsLegend').innerHTML = lt.bands.map((b, i) => `<div><i style="background:var(--life-${i + 1})"></i><span>Die ${b.label}</span><b>${b.n}</b></div>`).join('');
+  const reach90 = lt.ages.filter(a => a >= 90).length;
+  const first = Math.floor(lt.ages[0]) <= state.age ? 'within the year' : `at about ${Math.floor(lt.ages[0])}`;
+  $('dotsNote').textContent = `Of 100 people with your answers, ${reach90} reach 90. The first dies ${first} and the last at about ${Math.floor(lt.ages[99])}. Each dot is a percentile of your survival curve, not a random draw, so the picture is the same every time.`;
+}
+
+// ── Tabs ───────────────────────────────────────────────────────────────────
+function setTab(t, quiet) {
+  if (!TABS.includes(t)) t = 'overview';
+  tab = t;
+  document.querySelectorAll('[data-tab]').forEach(el => el.hidden = el.dataset.tab !== t);
+  document.querySelectorAll('[data-tabbtn]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tabbtn === t)));
+  // Charts drawn while their tab was hidden have no size yet.
+  Object.values(charts).forEach(c => c && c.resize && c.resize());
+  if (!quiet) syncURL(true);
 }
 function renderGroupSummaries() {
   $('gsumDemo').textContent = `${state.sex === 'M' ? 'Male' : 'Female'}, ${state.age}, ${LIFETABLES.countries[state.country].name}`;

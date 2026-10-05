@@ -15,6 +15,8 @@ const DEFAULTS = {
 const OPTIONAL_NUM = { waist:[50, 200], rhr:[35, 140], vo2max:[10, 90], grip:[5, 90], crp:[0.1, 50], sitting:[0, 18], pm25:[0, 150] };
 let state = { ...DEFAULTS };
 let events = [];               // health timeline, sorted by age
+const TABS = ['overview', 'factors', 'timeline', 'lifespan', 'method'];
+let tab = 'overview';           // which tab is showing; part of the link so a link can open on it
 const KEYS = Object.keys(DEFAULTS);
 // The profile plus its timeline: what the engine is given.
 function plan() { return { ...state, events }; }
@@ -45,6 +47,7 @@ function stateToHash() {
     parts.push(HASH_KEYS[k] + '=' + (typeof v === 'boolean' ? (v ? 1 : 0) : v));
   }
   if (events.length) parts.push('ev=' + encodeEvents(events));
+  if (tab !== 'overview') parts.push('tab=' + tab);
   return parts.join('&');
 }
 function hashParams(h) {
@@ -70,6 +73,7 @@ function applyHash(h) {
   }
   state = clampState(next);
   events = decodeEvents(p.ev);
+  tab = TABS.includes(p.tab) ? p.tab : 'overview';
   // Links from before the timeline carried ticked what-ifs (wi=); they become changes dated today.
   const legacy = WHATIFS.filter(w => (p.wi || '').split(',').includes(w.id) && w.applies(state));
   if (legacy.length) events = sortEvents([...events, ...legacy.map(w => cleanEvent(w.event(state)))]).slice(0, TL_MAX_EVENTS);
