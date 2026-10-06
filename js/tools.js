@@ -74,6 +74,28 @@ function coupleModel(you, pt, { widowhood = true } = {}) {
     newY = wy; oldY = oy; newP = wp; oldP = op;
     both.push(bt * (1 - a) * (1 - b)); onlyYou.push(newY + oldY); onlyPartner.push(newP + oldP);
   }
+  // One scenario ("your partner dies first", or you): when the first death comes,
+  // and when the survivor dies after it, with the same widowhood factors as above.
+  // Reported as typical (median) ages, and years alone as the gap between them, so
+  // the figures shown always add up.
+  const median = (dist, from) => { const tot = dist.reduce((x, y) => x + y, 0); let c = 0;
+    for (let k = 0; k < dist.length; k++) { if (c + dist[k] >= tot / 2) return from + k + (tot / 2 - c) / (dist[k] || 1); c += dist[k]; } return from + dist.length; };
+  const scenario = (widowed, q, age, W, otherAge) => {
+    const died = new Array(T + 1).fill(0);           // year the survivor dies
+    let gap = 0, total = 0;
+    widowed.forEach((w, t0) => {
+      if (!w) return;
+      let alive = w;
+      for (let k = t0 + 1; k <= T && alive > 1e-15; k++) {
+        const d = alive * raise(qAt(q, age + k), k === t0 + 1 ? W * F : W);
+        died[k] += d; gap += d * (k - t0); alive -= d;
+      }
+      total += w;
+    });
+    const firstDeath = median(widowed, 0);           // years from now
+    return { chance: total, firstDeathYears: firstDeath, survivorAgeThen: age + firstDeath, otherDiesAt: otherAge + firstDeath,
+      survivorDiesAt: median(died, age), meanYearsAlone: total ? gap / total : 0 };
+  };
   const youAlive = both.map((v, t) => v + onlyYou[t]), partnerAlive = both.map((v, t) => v + onlyPartner[t]);
   const either = both.map((v, t) => v + onlyYou[t] + onlyPartner[t]);
   const sumFrom1 = arr => arr.slice(1).reduce((x, y) => x + y, 0);
@@ -85,13 +107,14 @@ function coupleModel(you, pt, { widowhood = true } = {}) {
     youAge: yy.age, partnerAge: pp.age, partnerSex: pp.sex, both, onlyYou, onlyPartner, youAlive, partnerAlive, either,
     youLE: yy.age + sumFrom1(youAlive) + 0.5, partnerLE: pp.age + sumFrom1(partnerAlive) + 0.5,
     youOutlive: youWidowed.reduce((x, y) => x + y, 0) + tie / 2, partnerOutlives: partnerWidowed.reduce((x, y) => x + y, 0) + tie / 2,
-    yearsTogether: sumFrom1(both) + 0.5, yearsAloneYou: sumFrom1(onlyYou), yearsAlonePartner: sumFrom1(onlyPartner),
+    yearsTogether: sumFrom1(both) + 0.5, typicalTogether: yearsAtPct(both, 0.5), yearsAloneYou: sumFrom1(onlyYou), yearsAlonePartner: sumFrom1(onlyPartner),
     // Years alone *if* that person is the one left: the averages above include
     // the cases where they die first (and are alone for no years at all).
     youLeft: youWidowed.reduce((x, y) => x + y, 0), partnerLeft: partnerWidowed.reduce((x, y) => x + y, 0),
     aloneIfYouOutlive: sumFrom1(onlyYou) / (youWidowed.reduce((x, y) => x + y, 0) || 1),
     aloneIfPartnerOutlives: sumFrom1(onlyPartner) / (partnerWidowed.reduce((x, y) => x + y, 0) || 1),
     widowedAgeYou: medianAge(youWidowed, yy.age), widowedAgePartner: medianAge(partnerWidowed, pp.age),
+    ifPartnerFirst: scenario(youWidowed, q1, yy.age, W1, pp.age), ifYouFirst: scenario(partnerWidowed, q2, pp.age, W2, yy.age),
     last: { median: yearsAtPct(either, 0.5), p90: yearsAtPct(either, 0.1), p95: yearsAtPct(either, 0.05) },
     at: (arr, t) => t < arr.length ? arr[t] : 0,
   };

@@ -41,21 +41,27 @@ function renderTools(p, full, base, sc, contrib, spots) {
   const He = he[0].toUpperCase() + he.slice(1), r = v => Math.round(v);
   const months = d => { const n = Math.round(d * 12); return n < 1 ? 'under a month' : n === 1 ? '1 month' : `${n} months`; };
   const years = v => `${r(v)} year${r(v) === 1 ? '' : 's'}`;
+  // Every figure is a typical (median) one, and each scenario's years alone are
+  // the gap between the two ages shown, so the numbers on a card add up.
+  const story = (sc, firstWho, firstAge, survivor, survAge) => {
+    const then = r(sc.survivorAgeThen), dies = r(sc.survivorDiesAt), alone = dies - then;
+    return { alone, line: `${firstWho} typically ${firstWho === 'You' ? 'die' : 'dies'} at about ${r(firstAge)}, when ${survivor === 'you' ? 'you are' : he + ' is'} ${then}. ${survivor === 'you' ? 'You then live' : He + ' then lives'} to about ${dies}.` };
+  };
+  const a1 = story(m.ifPartnerFirst, He, m.ifPartnerFirst.otherDiesAt, 'you'), a2 = story(m.ifYouFirst, 'You', m.ifYouFirst.otherDiesAt, he);
   $('coupleCards').innerHTML = `
     <div class="couple-card"><div class="lbl">Who dies first</div>
       <div class="split" role="img" aria-label="${fmtPct(m.youOutlive)} chance ${he} dies first; ${fmtPct(m.partnerOutlives)} chance you do"><span style="width:${m.youOutlive * 100}%;background:${c.you}"></span><span style="width:${m.partnerOutlives * 100}%;background:${c.planB}"></span></div>
       <b>${fmtPct(m.youOutlive)}</b> chance ${he} dies first · <b>${fmtPct(m.partnerOutlives)}</b> chance you do</div>
-    <div class="couple-card"><div class="lbl">Your time together</div><div class="big">${years(m.yearsTogether)}</div>
-      on average, before the first of you dies</div>
-    <div class="couple-card"><div class="lbl">When the second of you dies</div><div class="big">${r(p.age + m.last.median)} <small>your age</small></div>
-      Half of couples like you have both died by the time you would be ${r(p.age + m.last.median)}. For 1 in 10, one of you is still alive at ${r(p.age + m.last.p90)}.</div>
-    <div class="couple-card"><div class="lbl">If ${he} dies first (${fmtPct(m.youOutlive)})</div><div class="big">${years(m.aloneIfYouOutlive)} <small>on your own</small></div>
-      on average, starting when you are about ${r(m.widowedAgeYou)}</div>
-    <div class="couple-card"><div class="lbl">If you die first (${fmtPct(m.partnerOutlives)})</div><div class="big">${years(m.aloneIfPartnerOutlives)} <small>on ${his} own</small></div>
-      on average, starting when ${he} is about ${r(m.widowedAgePartner)}</div>
+    <div class="couple-card"><div class="lbl">Your time together</div><div class="big">${years(m.typicalTogether)}</div>
+      Typically, the first of you dies around ${BASE_YR + r(m.typicalTogether)}.</div>
+    <div class="couple-card"><div class="lbl">Until neither of you is left</div><div class="big">${years(m.last.median)}</div>
+      Typically around ${BASE_YR + r(m.last.median)}. For 1 couple in 10 like you, one of you is still alive in ${BASE_YR + r(m.last.p90)}.</div>
+    <div class="couple-card"><div class="lbl">If ${he} dies first (${fmtPct(m.youOutlive)})</div><div class="big">${years(a1.alone)} <small>on your own</small></div>${a1.line}</div>
+    <div class="couple-card"><div class="lbl">If you die first (${fmtPct(m.partnerOutlives)})</div><div class="big">${years(a2.alone)} <small>on ${his} own</small></div>${a2.line}</div>
     <div class="couple-card"><div class="lbl">The cost of grief</div>${partner.widowhood
       ? `<div class="big">${months(ind.youLE - m.youLE)} <small>for you</small></div>${months(ind.partnerLE - m.partnerLE)} for ${him}: a widowed person's risk of dying rises (the widowhood effect), averaged over every way things could go`
       : `<div class="big">Off</div>Switched off: each of you keeps your own risk, whatever happens to the other`}</div>`;
+  $('coupleHint').textContent = `All figures are typical (middle-of-the-range) outcomes. Each “if” card describes that way of things going: whoever dies first usually dies younger than their own life expectancy, and the survivor lives longer than theirs — that is what makes them the survivor.`;
 
   // ── Couple: who is still here (stacked) ──
   const xs = m.both.map((_, t) => p.age + t);
