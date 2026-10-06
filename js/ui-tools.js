@@ -45,7 +45,7 @@ function renderTools(p, full, base, sc, contrib, spots) {
   // the gap between the two ages shown, so the numbers on a card add up.
   const story = (sc, firstWho, firstAge, survivor, survAge) => {
     const then = r(sc.survivorAgeThen), dies = r(sc.survivorDiesAt), alone = dies - then;
-    return { alone, line: `${firstWho} typically ${firstWho === 'You' ? 'die' : 'dies'} at about ${r(firstAge)}, when ${survivor === 'you' ? 'you are' : he + ' is'} ${then}. ${survivor === 'you' ? 'You then live' : He + ' then lives'} to about ${dies}.` };
+    return { alone, line: `Dying first usually means dying earlier than average: ${firstWho === 'You' ? 'you' : he} typically ${firstWho === 'You' ? 'die' : 'dies'} at about ${r(firstAge)}, when ${survivor === 'you' ? 'you are' : he + ' is'} ${then}. ${survivor === 'you' ? 'You then live' : He + ' then lives'} to about ${dies}.` };
   };
   const a1 = story(m.ifPartnerFirst, He, m.ifPartnerFirst.otherDiesAt, 'you'), a2 = story(m.ifYouFirst, 'You', m.ifYouFirst.otherDiesAt, he);
   $('coupleCards').innerHTML = `
@@ -61,7 +61,9 @@ function renderTools(p, full, base, sc, contrib, spots) {
     <div class="couple-card"><div class="lbl">The cost of grief</div>${partner.widowhood
       ? `<div class="big">${months(ind.youLE - m.youLE)} <small>for you</small></div>${months(ind.partnerLE - m.partnerLE)} for ${him}: a widowed person's risk of dying rises (the widowhood effect), averaged over every way things could go`
       : `<div class="big">Off</div>Switched off: each of you keeps your own risk, whatever happens to the other`}</div>`;
-  $('coupleHint').textContent = `All figures are typical (middle-of-the-range) outcomes. Each “if” card describes that way of things going: whoever dies first usually dies younger than their own life expectancy, and the survivor lives longer than theirs — that is what makes them the survivor.`;
+  $('coupleHint').innerHTML = `The two “if” cards are the two ways things can go, so their ages differ from your overall figures. `
+    + `<b>Your typical age at death in this couple, about ${r(m.youMedianAge)}, is a blend of the two:</b> about ${r(m.ifYouFirst.otherDiesAt)} in the ${fmtPct(m.partnerOutlives)} of futures where you die first, `
+    + `and about ${r(m.ifPartnerFirst.survivorDiesAt)} in the ${fmtPct(m.youOutlive)} where you outlive ${him}. All figures are typical (middle-of-the-range) outcomes.`;
 
   // ── Couple: who is still here (stacked) ──
   const xs = m.both.map((_, t) => p.age + t);

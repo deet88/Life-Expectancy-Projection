@@ -982,6 +982,10 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
         ok(`couple (${tag}), ${side}: the scenario's own years-alone average matches the model's, its chance matches, and its ages run in order with the right age gap`,
           near(sc.meanYearsAlone, mean, 1e-9) && near(sc.chance, left, 1e-12) && sc.survivorDiesAt > sc.survivorAgeThen
           && near(sc.otherDiesAt - sc.survivorAgeThen, side === 'partner first' ? A.partnerPlan(pt, you).age - you.age : you.age - A.partnerPlan(pt, you).age, 1e-9));
+      ok(`couple (${tag}): your typical age at death is a blend of the two stories, so it lies between them (and the same for your partner)`,
+        m.ifYouFirst.otherDiesAt <= m.youMedianAge && m.youMedianAge <= m.ifPartnerFirst.survivorDiesAt
+        && m.ifPartnerFirst.otherDiesAt <= m.partnerMedianAge && m.partnerMedianAge <= m.ifYouFirst.survivorDiesAt,
+        [m.ifYouFirst.otherDiesAt, m.youMedianAge, m.ifPartnerFirst.survivorDiesAt].map(f2).join(' ≤ '));
       ok(`couple (${tag}): the typical time together is when half of couples have lost one partner`, near(m.typicalTogether, A.yearsAtPct(m.both, 0.5), 1e-12) && m.typicalTogether < m.last.median);
       ok(`couple (${tag}): years alone if you are the one left × the chance you are = the overall average (and the same for your partner)`,
         near(m.aloneIfYouOutlive * m.youLeft, m.yearsAloneYou, 1e-9) && near(m.aloneIfPartnerOutlives * m.partnerLeft, m.yearsAlonePartner, 1e-9) && m.aloneIfYouOutlive > m.yearsAloneYou);
@@ -1042,7 +1046,7 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
     const html = els.coupleCards.innerHTML;
     const stories = [...html.matchAll(/<div class="big">(\d+) years? <small>on (?:your|his|her) own<\/small><\/div>[^<]*?, when (?:you are|he is|she is) (\d+)\. [^<]*?to about (\d+)\./g)];
     ok('couple cards: years alone = age at death − age when widowed, as printed', stories.length === 2 && stories.every(s => +s[1] === +s[3] - +s[2]), stories.map(s => s.slice(1).join('/')).join(' ')); }
-  ok('couple cards: plain sentences, no "your age by then"', !/your age by then/.test(els.coupleCards.innerHTML) && els.coupleHint.textContent.includes('typical'));
+  ok('couple cards: plain sentences; the note spells out the blend of the two stories', !/your age by then/.test(els.coupleCards.innerHTML) && /is a blend of the two:<\/b> about \d+ in the \d+% of futures where you die first, and about \d+ in the \d+% where you outlive/.test(els.coupleHint.innerHTML) && els.coupleCards.innerHTML.includes('Dying first usually means dying earlier than average'));
   ok('couple cards and table rendered', (els.coupleCards.innerHTML.match(/class="couple-card"/g) || []).length === 6 && (els.tblCouple.innerHTML.match(/<tr>/g) || []).length > 5);
   ok('no anniversaries without a year together', els.annivTiles.innerHTML.includes('Add the year'));
   ok('life in weeks drew all 5,200 weeks', fills >= 5200);
