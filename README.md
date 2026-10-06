@@ -54,7 +54,7 @@ Open `index.html` directly in a browser — no build step, no server, no depende
 
 ## Deploying
 
-The site is static. To publish on GitHub Pages: create a repository, push this folder (`git remote add origin <url> && git push -u origin main`), then in the repository's *Settings → Pages* choose *Deploy from a branch*, branch `main`, folder `/ (root)`. The `.nojekyll` file is already there. The `og:image` tag in `index.html` points at `https://deet88.github.io/Life-Expectancy/screenshot.png` — change it if the repository is named differently.
+The site is static and lives at **https://deet88.github.io/Life-Expectancy-Projection/** (repository [deet88/Life-Expectancy-Projection](https://github.com/deet88/Life-Expectancy-Projection), GitHub Pages deploying `main` from `/ (root)`; the `.nojekyll` file is already there). Every page file is referenced by a relative path, so a fork or a rename works unchanged — except the `og:image` tag in `index.html`, which link previews need as an absolute URL: update it if the repository is renamed.
 
 ## Calibration
 
