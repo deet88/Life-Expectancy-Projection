@@ -14,7 +14,7 @@ function ink() {
   const v = n => cs.getPropertyValue(n).trim();
   return { you: v('--chart-you'), improved: v('--chart-improved'), avg: v('--chart-avg'),
     gain: v('--chart-gain'), loss: v('--chart-loss'), grid: v('--chart-grid'),
-    text: v('--text'), muted: v('--muted'), surface: v('--surface') };
+    text: v('--text'), muted: v('--muted'), surface: v('--surface'), planB: v('--chart-b') };
 }
 
 // Imperial ↔ metric. State is always metric; the imperial inputs are a view.
@@ -79,7 +79,7 @@ function onModeBtn(e) {
   syncControls();
   refreshAll();
 }
-function resetAll() { state = { ...DEFAULTS }; events = []; syncControls(); refreshAll(); }
+function resetAll() { state = { ...DEFAULTS }; events = []; compare = null; syncControls(); refreshAll(); }
 function toggleTheme() {
   const t = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
   document.documentElement.dataset.theme = t;

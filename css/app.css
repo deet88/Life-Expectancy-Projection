@@ -9,6 +9,7 @@
      (deutan ΔE 4.0), so gains are drawn in the accent and losses in red. */
   --chart-you: #5d6af0; --chart-improved: #16a34a; --chart-avg: #7a8499;
   --chart-gain: #5d6af0; --chart-loss: #f04f5a; --chart-grid: rgba(255,255,255,.06);
+  --chart-b: #d95926;   /* Plan B; validated with --chart-you, all pairs, on --surface */
   --life-1: #4f46e5; --life-2: #6366f1; --life-3: #818cf8; --life-4: #a5b4fc; --life-5: #c7d2fe;  /* earlier → later death; ordinal, validated on --surface */
   --radius: 10px; color-scheme: dark;
 }
@@ -20,6 +21,7 @@
   --hover: rgba(20,30,60,.03); --line-faint: rgba(20,30,60,.06);
   --chart-you: #4d5ae3; --chart-improved: #15803d; --chart-avg: #5c6577;
   --chart-gain: #4d5ae3; --chart-loss: #d02f3d; --chart-grid: rgba(20,30,60,.08);
+  --chart-b: #eb6834;
   --life-1: #9ca9fb; --life-2: #7d87f6; --life-3: #6366f1; --life-4: #4f46e5; --life-5: #3730a3;
   color-scheme: light;
 }
@@ -245,6 +247,8 @@ footer { text-align: center; font-size: 11px; color: var(--faint); padding: 10px
 .tabs button { background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); font: inherit;
   font-size: 12px; font-weight: 600; padding: 8px 12px; cursor: pointer; white-space: nowrap; }
 .tabs button:hover { color: var(--text); }
+.tabs-tools { margin-left: auto; display: flex; gap: 6px; align-items: center; padding: 0 2px 4px; }
+.tabs .tabs-tools button { border: 1px solid var(--border2); border-radius: 7px; color: var(--muted); padding: 3px 9px; }
 .tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
 @media print { [data-tab][hidden] { display: block !important; } .tabs { display: none; } }
 
@@ -290,3 +294,50 @@ footer { text-align: center; font-size: 11px; color: var(--faint); padding: 10px
 .dots-legend b { font-variant-numeric: tabular-nums; }
 @media (max-width: 900px) { .score-grid { grid-template-columns: 1fr; } .pillar { grid-template-columns: 90px 1fr 56px; }
   .lever, .lever-head { grid-template-columns: 1fr 60px auto; } .lever .together, .lever-head span:nth-child(3) { display: none; } }
+
+/* ── Plan A / B ───────────────────────────────────────────────────────── */
+.plan-badge { font-size: 10px; font-weight: 700; letter-spacing: .04em; padding: 2px 7px; border-radius: 10px; vertical-align: middle; margin-left: 6px; color: #fff; }
+.plan-badge.plan-a { background: var(--chart-you); }
+.plan-badge.plan-b { background: var(--chart-b); }
+.ab-bar { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; padding: 8px; border-radius: 8px; background: var(--card); border: 1px solid var(--border); font-size: 11px; color: var(--muted); }
+.ab-bar .mode-btn { flex: 1; }
+.ab-bar .ab-b[aria-pressed="true"] { background: var(--chart-b); border-color: var(--chart-b); color: #fff; }
+.cmp-lead { font-size: 13px; color: var(--text); margin-bottom: 10px; max-width: 640px; }
+.cmp-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; font-size: 12px; color: var(--muted); }
+.cmp-editing b { color: var(--text); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-light); color: #fff; }
+.btn-xs { padding: 2px 8px; font-size: 11px; }
+.slot-save { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.slot-save input { flex: 1; min-width: 180px; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border2); background: var(--surface); color: var(--text); font: inherit; font-size: 12px; }
+.slot-list { display: flex; flex-direction: column; gap: 6px; }
+.slot { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 7px; background: var(--card2); border: 1px solid var(--border); font-size: 12px; color: var(--text); }
+
+/* ── Quick start dialog ───────────────────────────────────────────────── */
+.modal { position: fixed; inset: 0; z-index: 50; background: rgba(5, 8, 15, .6); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px; overflow-y: auto; }
+.modal-card { width: 100%; max-width: 560px; background: var(--surface); border: 1px solid var(--border2); border-radius: 12px; padding: 18px 20px; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+.qs-head { display: flex; justify-content: space-between; align-items: center; }
+.qs-head h2 { font-size: 16px; color: var(--strong); }
+.qs-steps { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0 4px; font-size: 11px; color: var(--faint); }
+.qs-steps .on { color: var(--text); font-weight: 700; }
+.qs-steps .done { color: var(--muted); }
+.qs-intro { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+.qs-fields { display: flex; flex-direction: column; gap: 10px; }
+.qs-fields .mode-row { display: flex; gap: 4px; }
+.qs-fields .mode-row .mode-btn { flex: 1; }
+.qs-nav { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 16px; }
+.qs-examples { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.qs-examples .sub-head, .qs-examples .hint { grid-column: 1 / -1; }
+.qs-example { text-align: left; padding: 8px 10px; border-radius: 7px; background: var(--card2); border: 1px solid var(--border); color: var(--text); font: inherit; font-size: 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.qs-example:hover { border-color: var(--accent); }
+.qs-example span { font-size: 11px; color: var(--muted); }
+
+/* ── Tour ─────────────────────────────────────────────────────────────── */
+.tour { position: fixed; inset: 0; z-index: 60; pointer-events: none; }
+.tour-spot { position: fixed; border-radius: 10px; box-shadow: 0 0 0 9999px rgba(5, 8, 15, .62); outline: 2px solid var(--accent); }
+.tour-card { position: fixed; pointer-events: auto; background: var(--surface); border: 1px solid var(--border2); border-radius: 10px; padding: 14px 16px; box-shadow: 0 16px 40px rgba(0,0,0,.4); }
+.tour-card h3 { font-size: 14px; color: var(--strong); margin: 2px 0 6px; }
+.tour-card p { font-size: 12px; color: var(--text); line-height: 1.5; }
+.tour-count { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+@media (max-width: 640px) { .qs-examples { grid-template-columns: 1fr; } }
+@media print { .modal, .tour, .ab-bar { display: none !important; } }

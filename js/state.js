@@ -15,7 +15,8 @@ const DEFAULTS = {
 const OPTIONAL_NUM = { waist:[50, 200], rhr:[35, 140], vo2max:[10, 90], grip:[5, 90], crp:[0.1, 50], sitting:[0, 18], pm25:[0, 150] };
 let state = { ...DEFAULTS };
 let events = [];               // health timeline, sorted by age
-const TABS = ['overview', 'factors', 'timeline', 'lifespan', 'method'];
+const TABS = ['overview', 'factors', 'timeline', 'compare', 'lifespan', 'method'];
+let compare = null;             // while comparing: { other: the plan not being edited, editing: 'A' | 'B' } (js/compare.js)
 let tab = 'overview';           // which tab is showing; part of the link so a link can open on it
 const KEYS = Object.keys(DEFAULTS);
 // The profile plus its timeline: what the engine is given.
@@ -39,14 +40,40 @@ const CHOICES = { sex:['M','F'], units:['metric','imperial'], smoke:['never','fo
   mental:['none','depression','smi'], osa:['none','moderate','severe'], drugs:['none','current'],
   income:['unk','low','middle','high'], work:['working','notworking','unemployed'],
   social:['strong','moderate','isolated'], mother:PARENT_CODES, father:PARENT_CODES };
-function stateToHash() {
+// One plan's inputs as link parts: only keys that differ from `base`, under a
+// prefix ('' for plan A against the defaults, 'b.' for plan B against plan A).
+// A blank optional input is written as an empty value so B can blank what A set.
+function encodeState(s, base, prefix) {
   const parts = [];
   for (const k of KEYS) {
-    const v = state[k];
-    if (v === DEFAULTS[k]) continue;
-    parts.push(HASH_KEYS[k] + '=' + (typeof v === 'boolean' ? (v ? 1 : 0) : v));
+    const v = s[k];
+    if (v === base[k]) continue;
+    parts.push(prefix + HASH_KEYS[k] + '=' + (v === null ? '' : typeof v === 'boolean' ? (v ? 1 : 0) : v));
   }
-  if (events.length) parts.push('ev=' + encodeEvents(events));
+  return parts;
+}
+function decodeState(p, base, prefix) {
+  const next = { ...base };
+  for (const k of KEYS) {
+    const raw = p[prefix + HASH_KEYS[k]];
+    if (raw === undefined) continue;
+    const d = DEFAULTS[k];
+    if (typeof d === 'boolean') next[k] = raw === '1';
+    else if (k in OPTIONAL_NUM && raw === '') next[k] = null;
+    else if (typeof d === 'number' || k in OPTIONAL_NUM) { const v = parseFloat(raw); if (isFinite(v)) next[k] = v; }
+    else if (k === 'country') { if (LIFETABLES.countries[raw]) next[k] = raw; }
+    else if (CHOICES[k] && CHOICES[k].includes(raw)) next[k] = raw;
+  }
+  return clampState(next);
+}
+function stateToHash() {
+  const ab = plansAB(), A = ab ? ab.A : { state, events };
+  const parts = encodeState(A.state, DEFAULTS, '');
+  if (A.events.length) parts.push('ev=' + encodeEvents(A.events));
+  if (ab) {
+    parts.push('cmp=' + compare.editing.toLowerCase(), ...encodeState(ab.B.state, A.state, 'b.'));
+    if (ab.B.events.length) parts.push('bev=' + encodeEvents(ab.B.events));
+  }
   if (tab !== 'overview') parts.push('tab=' + tab);
   return parts.join('&');
 }
@@ -61,22 +88,18 @@ function hashParams(h) {
 function applyHash(h) {
   if (!h.replace(/^#/, '')) return false;
   const p = hashParams(h);
-  const next = { ...DEFAULTS };
-  for (const k of KEYS) {
-    const raw = p[HASH_KEYS[k]];
-    if (raw === undefined) continue;
-    const d = DEFAULTS[k];
-    if (typeof d === 'boolean') next[k] = raw === '1';
-    else if (typeof d === 'number' || k in OPTIONAL_NUM) { const v = parseFloat(raw); if (isFinite(v)) next[k] = v; }
-    else if (k === 'country') { if (LIFETABLES.countries[raw]) next[k] = raw; }
-    else if (CHOICES[k] && CHOICES[k].includes(raw)) next[k] = raw;
-  }
-  state = clampState(next);
+  compare = null;
+  state = decodeState(p, DEFAULTS, '');
   events = decodeEvents(p.ev);
   tab = TABS.includes(p.tab) ? p.tab : 'overview';
   // Links from before the timeline carried ticked what-ifs (wi=); they become changes dated today.
   const legacy = WHATIFS.filter(w => (p.wi || '').split(',').includes(w.id) && w.applies(state));
   if (legacy.length) events = sortEvents([...events, ...legacy.map(w => cleanEvent(w.event(state)))]).slice(0, TL_MAX_EVENTS);
+  // A comparison: plan B is stored as its differences from plan A.
+  if (p.cmp === 'a' || p.cmp === 'b') {
+    compare = { other: { state: decodeState(p, state, 'b.'), events: decodeEvents(p.bev) }, editing: 'A' };
+    if (p.cmp === 'b') switchPlan('B');
+  }
   return true;
 }
 function clampState(s) {

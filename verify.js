@@ -29,7 +29,7 @@ function stubEl() {
     checked: false, min: 0, max: 0, step: 0, width: 300, height: 150, href: '', download: '', placeholder: '', parentElement: { style: {} },
     classList: { add(){}, remove(){}, toggle(){}, contains(){ return false; } },
     appendChild(){}, setAttribute(k, v){ this['@' + k] = v; }, removeAttribute(){}, addEventListener(){},
-    querySelectorAll(){ return []; }, focus(){}, click(){ clicks.push(this); },
+    querySelectorAll(){ return []; }, querySelector(){ return null; }, focus(){}, click(){ clicks.push(this); },
     getContext(){ return { fillRect(){}, drawImage(){}, save(){}, restore(){}, beginPath(){}, moveTo(){}, lineTo(){}, stroke(){}, fillText(){}, setLineDash(){} }; },
     toDataURL(){ return 'data:image/png;base64,'; } };
 }
@@ -84,17 +84,20 @@ function readFile(rel) {
 const inline = src.split('<script>').slice(1).map(b => b.split('</script>')[0]);
 ok('page has one inline script block (theme, before first paint)', inline.length === 1, inline.length);
 const scriptFiles = [...src.matchAll(/<script src="([^":]+)"><\/script>/g)].map(m => m[1]);
-ok('page loads the data, engine, timeline, insights, state, ui and main scripts in order',
-  scriptFiles.join() === 'data/lifetables.js,js/engine.js,js/timeline.js,js/insights.js,js/state.js,js/ui.js,js/main.js', scriptFiles.join());
+ok('page loads every script in dependency order',
+  scriptFiles.join() === 'data/lifetables.js,js/engine.js,js/timeline.js,js/insights.js,js/state.js,js/compare.js,js/onboarding.js,js/ui.js,js/ui-compare.js,js/ui-onboarding.js,js/main.js', scriptFiles.join());
 const appSrc = scriptFiles.map(readFile).join('\n') + `
-;({ summarize, adjustedQ, survival, lifeExp, ageAtPct, contributions, WHATIFS, withEvents, stateAt, cleanEvent, sortEvents, eventApplies, newEvent, encodeEvents, decodeEvents, describeEvent, shortEvent, timelineFactors, longevityScore, wholeParts, blindSpots, levers, alerts, lifetimes, bottomLine, PILLARS, LIFETIME_BANDS, BLIND_SPOTS, SCORE_PER_YEAR, setTab, TABS, TL_SET, TL_DX, SBP_MEDIAN, FACTORS, FACTOR_BY_ID,
+;({ summarize, adjustedQ, survival, lifeExp, ageAtPct, contributions, WHATIFS, withEvents, stateAt, cleanEvent, sortEvents, eventApplies, newEvent, encodeEvents, decodeEvents, describeEvent, shortEvent, timelineFactors, longevityScore, wholeParts, blindSpots, levers, alerts, lifetimes, bottomLine, PILLARS, LIFETIME_BANDS, BLIND_SPOTS, SCORE_PER_YEAR, setTab, TABS, startCompare, switchPlan, swapPlans, keepPlan, resetBToA, planDiff, resetKeyToA, resetEventsToA, plansAB, scorecard,
+   readSlots, saveSlot, loadSlot, deleteSlot, encodeState, decodeState, ARCHETYPES, archetypePlan, QS_STEPS, QS_KEYS, quickStartState, TOUR,
+   KEY_LABELS, valueText, renderCompare, TL_SET, TL_DX, SBP_MEDIAN, FACTORS, FACTOR_BY_ID,
    factorMult, atten, baseQ, bmiOf, bmiHR, actHR, alcHR, sleepHR, sbpHR, fvHR, formerHR, interp, devProb, sbpAt,
    DEFAULTS, KEYS, HASH_KEYS, LIFETABLES, PREV, PARENT_HR, PARENT_DIST, PARENT_CODES, ALIVE_AGE, parentHR, SMOKE_HR, SMOKE_SPLIT, AGE_PREV,
-   CALIBRATIONS, withBmi, diffLE, MAX_AGE, MAX_MULT, MIN_MULT, SOFT_FROM, GROUP_CAPS, BASE_YR, VASC_SHARE,
+   CALIBRATIONS, withBmi, diffLE, CHOICES, clampState, MAX_AGE, MAX_MULT, MIN_MULT, SOFT_FROM, GROUP_CAPS, BASE_YR, VASC_SHARE,
    stateToHash, applyHash, hashParams, clampState, onInput, onModeBtn, resetAll, syncControls, refreshAll,
    toggleTheme, exportCsv, exportPng, renderFactorTable, renderCalibration,
    addEvent, removeEvent, onTimelineEdit, plan,
-   state: () => state, events: () => events, tab: () => tab, setEvents: v => { events = v; }, last: () => last })`;
+   state: () => state, events: () => events, tab: () => tab, compare: () => compare,
+   setState: v => { state = v; }, setEvents: v => { events = v; }, last: () => last })`;
 const A = eval(appSrc);
 
 const COUNTRIES = Object.keys(A.LIFETABLES.countries);
@@ -804,6 +807,141 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
   ok('timelineFactors finds exactly the factors events touch', [...A.timelineFactors({ ...A.withBmi(D, 30), smoke: 'current', events: A.sortEvents([{ kind: 'quit', age: 50 }, { kind: 'weight', age: 55, value: 70 }, { kind: 'set', age: 60, field: 'nuts', value: 'daily' }, { kind: 'dx', age: 70, field: 'af', value: true }].map(A.cleanEvent)) })].sort().join() === 'af,bmi,nuts,smoking');
   ok('an inert event touches no factor', A.timelineFactors({ ...D, events: [{ kind: 'quit', age: 50 }] }).size === 0);
   ok('reset clears the timeline', A.events().length === 0 && !lastLine().data.datasets.some(d => d.label === 'If nothing changes'));
+}
+// Plan A vs Plan B
+{
+  A.resetAll();
+  ok('not comparing at first', A.compare() === null && A.plansAB() === null && A.planDiff() === null);
+  A.startCompare();
+  ok('start: comparing, editing B', A.compare() && A.compare().editing === 'B');
+  ok('start: B is an exact copy of A', (() => { const d = A.planDiff(); return d.keys.length === 0 && !d.onlyA.length && !d.onlyB.length; })());
+  ok('start: B is a copy, not the same object', A.plansAB().A.state !== A.plansAB().B.state);
+  A.state().age = 60; A.state().vo2max = 44;
+  A.addEvent({ kind: 'set', age: 62, field: 'activity', value: 300 });
+  ok('editing B leaves A alone', A.plansAB().A.state.age === D.age && A.plansAB().A.state.vo2max === null && A.plansAB().A.events.length === 0);
+  ok('diff lists exactly what changed', A.planDiff().keys.join() === 'age,vo2max' && A.planDiff().onlyB.length === 1 && A.planDiff().onlyA.length === 0);
+  A.switchPlan('A');
+  ok('switching to A shows A', A.state().age === D.age && A.compare().editing === 'A');
+  A.switchPlan('B');
+  ok('switching back shows B as left', A.state().age === 60 && A.events().length === 1);
+  A.switchPlan('C');
+  ok('an unknown plan name is ignored', A.compare().editing === 'B');
+  const h0 = A.stateToHash();
+  A.swapPlans(); A.swapPlans();
+  ok('swap twice is the identity', A.stateToHash() === h0);
+  A.swapPlans();
+  ok('swap once exchanges the plans', A.plansAB().A.state.age === 60 && A.plansAB().B.state.age === D.age);
+  A.swapPlans();
+  // Links carry the whole comparison, including B blanking an input A has set
+  A.switchPlan('A'); A.state().waist = 92; A.switchPlan('B');
+  const h = A.stateToHash();
+  ok('link marks the comparison and who is being edited', /(^|&)cmp=b(&|$)/.test(h) && /b\.a=60/.test(h) && /b\.wc=(&|$)/.test(h) && /bev=s~62~activity~300/.test(h), h);
+  const before = JSON.stringify(A.plansAB());
+  A.resetAll(); A.applyHash('#' + h);
+  ok('link round-trips both plans and the editing side', JSON.stringify(A.plansAB()) === before && A.compare().editing === 'B');
+  ok('B blanking an input A set survives the link', A.plansAB().A.state.waist === 92 && A.plansAB().B.state.waist === null);
+  A.applyHash('#a=50&cmp=a');
+  ok('identical plans round-trip as just cmp=', A.compare() && A.planDiff().keys.length === 0 && A.stateToHash() === 'a=50&cmp=a');
+  A.applyHash('#a=50&cmp=zz&b.a=70');
+  ok('an unknown cmp value is no comparison', A.compare() === null);
+  A.applyHash('#a=50&cmp=b&b.a=999&b.sm=vape&bev=q~nope');
+  ok('plan B from a link is validated like plan A', A.state().age === 100 && A.state().smoke === 'never' && A.events().length === 0);
+  // Per-row and whole-plan resets
+  A.applyHash('#' + h);
+  A.resetKeyToA('age');
+  ok('reset one input to A', A.plansAB().B.state.age === D.age && !A.planDiff().keys.includes('age'));
+  A.resetKeyToA('nonsense');
+  ok('reset ignores unknown keys', !('nonsense' in A.plansAB().B.state));
+  A.resetEventsToA();
+  ok('reset the timeline to A', A.planDiff().onlyB.length === 0 && A.events().length === 0);
+  A.applyHash('#' + h); A.switchPlan('A'); A.resetBToA();
+  ok('reset B to A, from either side', A.planDiff().keys.length === 0 && A.compare().other !== null);
+  A.applyHash('#' + h); A.resetBToA();
+  ok('reset B to A while editing B', A.planDiff().keys.length === 0 && A.state().age === D.age);
+  A.applyHash('#' + h); A.keepPlan('A');
+  ok('keep A ends the comparison with A', A.compare() === null && A.state().age === D.age && !/cmp=/.test(A.stateToHash()));
+  A.applyHash('#' + h); A.keepPlan('B');
+  ok('keep B ends the comparison with B', A.compare() === null && A.state().age === 60 && A.events().length === 1);
+  // Scorecard and rendering
+  A.applyHash('#' + h);
+  const pb = A.plan(), sb = A.scorecard(pb);
+  ok('scorecard matches the engine', near(sb.le, A.summarize(pb).le, 1e-12) && sb.score === A.longevityScore(A.contributions(pb, A.summarize(pb))).score);
+  A.refreshAll();
+  ok('compare tab renders: scorecard rows, diff rows, chart with A, B and average',
+    (els.tblScore.innerHTML.match(/<tr>/g) || []).length === 8 && els.tblDiff.innerHTML.includes('↺ Use A') && !els.abBar.hidden
+    && chartCalls.filter(c => c.type === 'line').some(c => c.data.datasets.map(d => d.label).join() === 'National average (Plan A),Plan A,Plan B'));
+  ok('score difference is a whole number', /<td>Longevity score<\/td><td class="num">\d+<\/td><td class="num">\d+<\/td><td class="num[^"]*">[+−]?\d+<\/td>/.test(els.tblScore.innerHTML), els.tblScore.innerHTML.slice(0, 400));
+  ok('header badge says which plan', els.planBadge.textContent === 'Editing Plan B' && !els.planBadge.hidden);
+  A.resetAll();
+  ok('reset ends the comparison', A.compare() === null);
+  A.refreshAll();
+  ok('not comparing: the A/B bar and badge are hidden, the intro offers to start', els.abBar.hidden && els.planBadge.hidden && els.cmpIntro.innerHTML.includes('data-cmp="start"'));
+  ok('every input has a label for the diff table', A.KEYS.every(k => typeof A.KEY_LABELS[k] === 'string'));
+  ok('values read as words', A.valueText('vo2max', null) === 'not entered' && A.valueText('cvd', true) === 'Yes' && A.valueText('country', 'JPN') === 'Japan' && A.valueText('activity', 150) === '150 min/week');
+}
+// Saved plans (this browser's storage, which may be missing or blocked)
+{
+  A.resetAll();
+  localStorage._d = {};
+  Object.assign(A.state(), { age: 52, smoke: 'current', vo2max: 41 });
+  A.setEvents(A.sortEvents([A.cleanEvent({ kind: 'quit', age: 55 })]));
+  ok('save a plan', A.saveSlot('  Quit at 55  ') && A.readSlots().length === 1 && A.readSlots()[0].name === 'Quit at 55');
+  ok('a nameless plan is not saved', !A.saveSlot('   ') && A.readSlots().length === 1);
+  const saved = JSON.stringify({ s: A.state(), e: A.events() });
+  A.resetAll();
+  ok('load restores inputs and timeline', A.loadSlot('Quit at 55') && JSON.stringify({ s: A.state(), e: A.events() }) === saved);
+  A.saveSlot('Quit at 55');
+  ok('saving under the same name replaces it', A.readSlots().length === 1);
+  A.startCompare(); A.resetAll(); A.startCompare();
+  A.loadSlot('Quit at 55');
+  ok('loading while comparing fills the plan being edited (B)', A.plansAB().B.state.age === 52 && A.plansAB().A.state.age === D.age);
+  A.resetAll();
+  ok('delete a plan', A.deleteSlot('Quit at 55') && A.readSlots().length === 0);
+  ok('loading a missing plan does nothing', !A.loadSlot('nope') && JSON.stringify(A.state()) === JSON.stringify(D));
+  localStorage._d['lifex-slots'] = '{not json';
+  ok('corrupt storage reads as no plans', A.readSlots().length === 0);
+  localStorage._d['lifex-slots'] = JSON.stringify([{ name: 1 }, 'x', null, { name: 'ok', hash: 'a=50' }]);
+  ok('malformed entries are skipped', A.readSlots().map(x => x.name).join() === 'ok');
+  localStorage._d['lifex-slots'] = JSON.stringify([{ name: 'evil', hash: 'a=999&sm=vape&ev=q~x' }]);
+  A.loadSlot('evil');
+  ok('a saved plan goes through the link validation', A.state().age === 100 && A.state().smoke === 'never' && A.events().length === 0);
+  const gi = localStorage.getItem, si = localStorage.setItem;
+  localStorage.getItem = () => { throw new Error('blocked'); }; localStorage.setItem = () => { throw new Error('blocked'); };
+  ok('blocked storage: no plans, saving reports failure, nothing throws', A.readSlots().length === 0 && A.saveSlot('x') === false);
+  localStorage.getItem = gi; localStorage.setItem = si; localStorage._d = {};
+  A.resetAll();
+}
+// Example profiles and Quick Start
+{
+  const keep = { country: 'GBR', units: 'imperial' };
+  ok('seven example profiles with unique ids', A.ARCHETYPES.length === 7 && new Set(A.ARCHETYPES.map(a => a.id)).size === 7);
+  const les = [];
+  for (const a of A.ARCHETYPES) {
+    const pl = A.archetypePlan(a.id, keep);
+    ok(`example ${a.id}: only real inputs`, Object.keys(a.state).every(k => A.KEYS.includes(k)));
+    ok(`example ${a.id}: every value already in range (clamping changes nothing)`, JSON.stringify(A.clampState({ ...pl.state })) === JSON.stringify(pl.state));
+    ok(`example ${a.id}: choices are valid`, Object.entries(a.state).every(([k, v]) => !A.CHOICES || !A.CHOICES[k] || A.CHOICES[k].includes(v)));
+    ok(`example ${a.id}: keeps your country and units`, pl.state.country === 'GBR' && pl.state.units === 'imperial');
+    ok(`example ${a.id}: every timeline event is valid and changes something`, pl.events.every(e => A.eventApplies(e, pl.state)) && pl.events.length === (a.events || []).length);
+    les.push(A.summarize({ ...pl.state, events: pl.events }).le);
+  }
+  ok('examples span a real range of outcomes', Math.max(...les) - Math.min(...les) > 8, les.map(f2).join(' '));
+  ok('an unknown example is refused', A.archetypePlan('nope', keep) === null);
+  ok('Quick Start asks only real inputs', A.QS_KEYS.every(k => A.KEYS.includes(k)));
+  const ans = { country: 'FRA', sex: 'F', age: 63, units: 'metric', height: 160, weight: 70, sbp: '', smoke: 'former', cigs: 'ge20', quitYears: 12,
+    activity: 200, alcohol: 6, sleep: 7.5, diabetes: 'pre', cvd: true, af: false, social: 'moderate', partnered: false };
+  const qs = A.quickStartState(ans);
+  ok('Quick Start fills the answered inputs', qs.country === 'FRA' && qs.sex === 'F' && qs.age === 63 && qs.smoke === 'former' && qs.quitYears === 12 && qs.cvd === true && qs.partnered === false);
+  ok('a blank blood pressure is the typical reading for your age', qs.sbp === Math.round(A.interp(A.SBP_MEDIAN, 63)));
+  ok('everything not asked stays not entered', qs.vo2max === null && qs.strength === 'unk' && qs.nuts === 'unk' && qs.mother === 'unk');
+  const junk = A.quickStartState({ country: 'XXX', sex: 'Q', age: 'old', smoke: 'vape', weight: -5, sleep: 99, cvd: 'yes please' });
+  ok('Quick Start rejects junk answers', junk.country === 'USA' && junk.sex === 'M' && junk.age === D.age && junk.smoke === 'never' && junk.weight === 30 && junk.sleep === 12 && junk.cvd === true);
+  ok('the tour has six steps', A.TOUR.length === 6);
+  for (const t of A.TOUR) {
+    const sel = t.target, found = sel.startsWith('#') ? src.includes(`id="${sel.slice(1)}"`) : sel.startsWith('.') ? src.includes(`class="${sel.slice(1)}"`) || new RegExp(`class="[^"]*\\b${sel.slice(1)}\\b`).test(src) : false;
+    ok(`tour step "${t.title}" points at something on the page (${sel})`, found);
+    ok(`tour step "${t.title}" names a real tab`, !t.tab || A.TABS.includes(t.tab));
+  }
 }
 // Theme
 {

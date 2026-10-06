@@ -18,6 +18,7 @@ function refreshAll() {
   renderAlerts(alerts(p, full, contrib), spots);
   renderLevers(lev);
   renderLifetimes(full);
+  renderCompare(full);
   renderDist(full);
   syncURL();
 }
@@ -39,6 +40,7 @@ function init() {
   });
   syncThemeBtn();
   bindTimeline();
+  bindCompare();
   document.querySelectorAll('[data-tabbtn]').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tabbtn)));
   renderFactorTable();
   renderCalibration();
@@ -46,6 +48,7 @@ function init() {
   syncControls();
   refreshAll();
   setTab(tab, true);
+  bindOnboarding();
   addEventListener('hashchange', () => { if (applyHash(location.hash)) { syncControls(); refreshAll(); setTab(tab, true); } });
 }
 init();
