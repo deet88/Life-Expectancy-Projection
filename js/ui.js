@@ -14,7 +14,7 @@ function ink() {
   const v = n => cs.getPropertyValue(n).trim();
   return { you: v('--chart-you'), improved: v('--chart-improved'), avg: v('--chart-avg'),
     gain: v('--chart-gain'), loss: v('--chart-loss'), grid: v('--chart-grid'),
-    text: v('--text'), muted: v('--muted'), surface: v('--surface'), planB: v('--chart-b') };
+    text: v('--text'), muted: v('--muted'), surface: v('--surface'), planB: v('--chart-b'), third: v('--chart-c') };
 }
 
 // Imperial ↔ metric. State is always metric; the imperial inputs are a view.
@@ -80,17 +80,15 @@ function onModeBtn(e) {
   refreshAll();
 }
 function resetAll() { state = { ...DEFAULTS }; events = []; compare = null; syncControls(); refreshAll(); }
-function toggleTheme() {
-  const t = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+const THEMES = ['dark', 'light', 'paper', 'ocean'];
+function setTheme(t) {
+  if (!THEMES.includes(t)) return;
   document.documentElement.dataset.theme = t;
-  localStorage.setItem('lifex-theme', t);
+  try { localStorage.setItem('lifex-theme', t); } catch (e) { /* storage blocked: the theme still applies */ }
   syncThemeBtn();
-  refreshAll(); // charts re-render with the new mode's inks
+  refreshAll(); // charts re-render with the new theme's inks
 }
-function syncThemeBtn() {
-  const light = document.documentElement.dataset.theme === 'light';
-  $('themeBtn').textContent = light ? '☾ Dark' : '☀ Light';
-}
+function syncThemeBtn() { $('themeSel').value = document.documentElement.dataset.theme; }
 
 // ── Charts ─────────────────────────────────────────────────────────────────
 // Vertical reference lines with a label, driven by options.plugins.markers.items

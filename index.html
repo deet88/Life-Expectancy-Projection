@@ -14,8 +14,9 @@
 <script>
 // Apply saved theme before first paint to avoid a flash of the wrong mode
 (function(){
-  const t = localStorage.getItem('lifex-theme') ||
-    (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+  let t = null;
+  try { t = localStorage.getItem('lifex-theme'); } catch (e) {}
+  if (['dark', 'light', 'paper', 'ocean'].indexOf(t) < 0) t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
   document.documentElement.dataset.theme = t;
 })();
 </script>
@@ -55,7 +56,9 @@
       </div>
     </div>
     <button class="btn" id="copyBtn" onclick="copyLink()" title="Copy a link that restores every input on this page">Copy link</button>
-    <button class="btn" id="themeBtn" onclick="toggleTheme()" title="Switch between dark and light mode"></button>
+    <select class="btn theme-sel" id="themeSel" aria-label="Colour theme" title="Colour theme">
+      <option value="dark">☾ Dark</option><option value="light">☀ Light</option><option value="paper">◫ Paper</option><option value="ocean">◐ Ocean</option>
+    </select>
   </div>
 </header>
 
@@ -445,6 +448,7 @@
       <button type="button" role="tab" data-tabbtn="timeline">Timeline</button>
       <button type="button" role="tab" data-tabbtn="compare">Compare</button>
       <button type="button" role="tab" data-tabbtn="lifespan">Lifespan</button>
+      <button type="button" role="tab" data-tabbtn="tools">Tools</button>
       <button type="button" role="tab" data-tabbtn="method">Methodology</button>
       <span class="tabs-tools">
         <button type="button" class="btn btn-xs" id="qsBtn" title="Answer a few questions, or start from an example">⚡ Quick start</button>
@@ -625,6 +629,76 @@
       </div>
     </section>
 
+    <section class="panel" data-tab="tools" id="planToPanel">
+      <div class="panel-head">
+        <h2>Plan your money to…</h2>
+        <p>Retirement money planned to your life expectancy runs out half the time · plan to an age you are unlikely to pass</p>
+      </div>
+      <div class="plan-to" id="planTo"></div>
+      <p class="hint" id="planToNote"></p>
+    </section>
+
+    <section class="panel" data-tab="tools" id="couplePanel">
+      <div class="panel-head">
+        <h2>You and a partner</h2>
+        <p>The chance that one or both of you are still alive · the two lives are treated as independent</p>
+      </div>
+      <div class="pt-controls">
+        <label>Partner <select id="ptMode" aria-label="Partner profile"></select></label>
+        <span class="mode-row" id="ptSexRow"><button type="button" class="mode-btn" data-pt-sex="M">Male</button><button type="button" class="mode-btn" data-pt-sex="F">Female</button></span>
+        <label id="ptAgeLabel">Age <input type="number" id="ptAge" min="18" max="100" step="1"></label>
+      </div>
+      <div class="two-col">
+        <div>
+          <div class="chart-wrap chart-sm"><canvas id="chCouple" role="img" aria-label="Chance you, your partner, and at least one of you are alive, by your age. The same figures are in the table view."></canvas></div>
+          <div class="legend" id="legCouple"></div>
+          <details class="tbl"><summary>Table view</summary><div class="table-scroll"><table class="data" id="tblCouple"></table></div></details>
+        </div>
+        <div class="couple-stats" id="coupleStats"></div>
+      </div>
+    </section>
+
+    <section class="panel" data-tab="tools" id="weeksPanel">
+      <div class="panel-head">
+        <h2>Your life in weeks</h2>
+        <p>One square per week from birth to 100 · weeks ahead are shaded by the chance you will be alive to see them</p>
+      </div>
+      <div class="two-col">
+        <canvas id="cvWeeks" class="weeks" role="img" aria-label="A grid of weeks: weeks lived, and future weeks shaded by the chance of being alive. The totals are beside it."></canvas>
+        <div class="dots-legend" id="weeksNote"></div>
+      </div>
+    </section>
+
+    <section class="panel" data-tab="tools" id="sharePanel">
+      <div class="panel-head">
+        <h2>Share &amp; save</h2>
+        <p>Everything is made in this page · nothing is uploaded</p>
+      </div>
+      <div class="two-col">
+        <div>
+          <canvas id="cvCard" class="share-card" width="1200" height="630" role="img" aria-label="A shareable image of your headline results"></canvas>
+          <div class="btn-row" style="margin-top:8px"><button type="button" class="btn" id="dlCard">Download image (1200 × 630)</button></div>
+        </div>
+        <div class="share-side">
+          <div class="sub-head">Text summary</div>
+          <div class="share-opts">
+            <span class="mode-row"><button type="button" class="mode-btn" data-sum-fmt="md" aria-pressed="true">Markdown</button><button type="button" class="mode-btn" data-sum-fmt="text" aria-pressed="false">Plain text</button></span>
+            <label class="chk"><input type="checkbox" id="sumPrivate"> Leave out my age and measurements</label>
+          </div>
+          <textarea id="sumText" class="share-text" rows="8" readonly aria-label="Text summary"></textarea>
+          <div class="btn-row"><button type="button" class="btn" id="copySum">Copy summary</button></div>
+          <div class="sub-head" style="margin-top:14px">Ask an AI to check it</div>
+          <p class="hint">Copies your inputs and results with four questions to paste into an assistant such as Claude. It includes your details.</p>
+          <div class="btn-row"><button type="button" class="btn" id="copyAi">Copy AI prompt</button></div>
+          <details class="tbl"><summary>Show the prompt</summary><textarea id="aiText" class="share-text" rows="10" readonly aria-label="AI prompt"></textarea></details>
+          <div class="sub-head" style="margin-top:14px">Save to a file</div>
+          <div class="btn-row"><button type="button" class="btn" id="exportJson">Export plan (JSON)</button>
+            <label class="btn" for="importFile">Import plan…</label><input type="file" id="importFile" accept=".json,application/json" hidden></div>
+          <p class="hint" id="jsonMsg">A file carries everything a link does: both plans when comparing, the timeline, the tab.</p>
+        </div>
+      </div>
+    </section>
+
     <!-- Methodology, Data Sources & Limitations -->
     <div class="method-panel" id="method" data-tab="method">
       <h2>⚠ Methodology, Data Sources &amp; Limitations</h2>
@@ -698,12 +772,15 @@
 <script src="js/engine.js"></script>
 <script src="js/timeline.js"></script>
 <script src="js/insights.js"></script>
+<script src="js/tools.js"></script>
 <script src="js/state.js"></script>
 <script src="js/compare.js"></script>
 <script src="js/onboarding.js"></script>
+<script src="js/share.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/ui-compare.js"></script>
 <script src="js/ui-onboarding.js"></script>
+<script src="js/ui-tools.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

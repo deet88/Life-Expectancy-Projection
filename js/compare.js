@@ -89,3 +89,10 @@ function loadSlot(name) {
   return true;
 }
 function deleteSlot(name) { return writeSlots(readSlots().filter(x => x.name !== name)); }
+// A saved plan as an engine plan, without loading it (for the couple tool's partner).
+function slotPlan(name) {
+  const slot = readSlots().find(x => x.name === name);
+  if (!slot) return null;
+  const p = hashParams(slot.hash);
+  return { ...decodeState(p, DEFAULTS, ''), events: decodeEvents(p.ev) };
+}

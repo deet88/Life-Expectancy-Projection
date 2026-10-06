@@ -10,6 +10,7 @@
   --chart-you: #5d6af0; --chart-improved: #16a34a; --chart-avg: #7a8499;
   --chart-gain: #5d6af0; --chart-loss: #f04f5a; --chart-grid: rgba(255,255,255,.06);
   --chart-b: #d95926;   /* Plan B; validated with --chart-you, all pairs, on --surface */
+  --chart-c: #199e70;   /* third series (couple: at least one alive); you + b + c pass all pairs */
   --life-1: #4f46e5; --life-2: #6366f1; --life-3: #818cf8; --life-4: #a5b4fc; --life-5: #c7d2fe;  /* earlier → later death; ordinal, validated on --surface */
   --radius: 10px; color-scheme: dark;
 }
@@ -21,9 +22,29 @@
   --hover: rgba(20,30,60,.03); --line-faint: rgba(20,30,60,.06);
   --chart-you: #4d5ae3; --chart-improved: #15803d; --chart-avg: #5c6577;
   --chart-gain: #4d5ae3; --chart-loss: #d02f3d; --chart-grid: rgba(20,30,60,.08);
-  --chart-b: #eb6834;
+  --chart-b: #eb6834; --chart-c: #1baf7a;   /* c is under 3:1 here: its chart has labels and a table */
   --life-1: #9ca9fb; --life-2: #7d87f6; --life-3: #6366f1; --life-4: #4f46e5; --life-5: #3730a3;
   color-scheme: light;
+}
+/* Paper: warm light. Chart colours as light, re-validated on #fbf8f2. */
+:root[data-theme="paper"] {
+  --bg: #f1ebe0; --surface: #fbf8f2; --card: #fbf8f2; --card2: #f3ede2;
+  --border: #e3dacb; --border2: #d1c5b0; --text: #2d2720; --muted: #6a6052;
+  --faint: #a3988a; --accent: #4d5ae3; --accent-light: #4553d6;
+  --green: #15803d; --red: #d02f3d; --amber: #b45309; --strong: #1c1712;
+  --hover: rgba(60,40,20,.03); --line-faint: rgba(60,40,20,.06);
+  --chart-you: #4d5ae3; --chart-improved: #15803d; --chart-avg: #6a6052;
+  --chart-gain: #4d5ae3; --chart-loss: #d02f3d; --chart-grid: rgba(60,40,20,.09);
+  --chart-b: #eb6834; --chart-c: #1baf7a;
+  --life-1: #9ca9fb; --life-2: #7d87f6; --life-3: #6366f1; --life-4: #4f46e5; --life-5: #3730a3;
+  color-scheme: light;
+}
+/* Ocean: blue-green dark. Chart colours as dark, re-validated on #0f1d24. */
+:root[data-theme="ocean"] {
+  --bg: #08141a; --surface: #0f1d24; --card: #13252d; --card2: #182c35;
+  --border: #21384a; --border2: #2c4859; --text: #dfeaf0; --muted: #7f97a3;
+  --faint: #4b6372; --hover: rgba(255,255,255,.02); --line-faint: rgba(255,255,255,.05);
+  --chart-avg: #7f97a3; --chart-grid: rgba(255,255,255,.07);
 }
 body, header, .sidebar, .panel, .method-panel, .tile {
   transition: background-color .25s ease, border-color .25s ease, color .25s ease;
@@ -341,3 +362,26 @@ footer { text-align: center; font-size: 11px; color: var(--faint); padding: 10px
 .tour-count { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 @media (max-width: 640px) { .qs-examples { grid-template-columns: 1fr; } }
 @media print { .modal, .tour, .ab-bar { display: none !important; } }
+
+/* ── Tools ────────────────────────────────────────────────────────────── */
+.theme-sel { padding: 6px 8px; }
+.plan-to { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.plan-card { padding: 12px 14px; border-radius: var(--radius); background: var(--card2); border: 1px solid var(--border); }
+.plan-card .lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.plan-card .num { font-size: 30px; font-weight: 800; color: var(--strong); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.plan-card .sub { font-size: 11px; color: var(--muted); }
+.plan-card button { margin-top: 6px; }
+.plan-card.key { border-color: var(--accent); }
+.pt-controls { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; font-size: 12px; color: var(--muted); }
+.pt-controls select, .pt-controls input { margin-left: 6px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--border2); background: var(--surface); color: var(--text); font: inherit; font-size: 12px; }
+.pt-controls input { width: 64px; }
+.pt-controls .mode-row { display: inline-flex; gap: 4px; }
+.couple-stats { display: flex; flex-direction: column; gap: 10px; font-size: 13px; color: var(--text); }
+.couple-stats b { color: var(--strong); }
+.weeks { width: 100%; max-width: 420px; height: auto; }
+.share-card { width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--border); }
+.share-side { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.share-opts { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.share-opts .mode-row { display: inline-flex; gap: 4px; }
+.share-text { width: 100%; resize: vertical; padding: 8px; border-radius: 6px; border: 1px solid var(--border2); background: var(--card2); color: var(--text); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+label.btn { cursor: pointer; }

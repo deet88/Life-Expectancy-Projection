@@ -15,7 +15,8 @@ const DEFAULTS = {
 const OPTIONAL_NUM = { waist:[50, 200], rhr:[35, 140], vo2max:[10, 90], grip:[5, 90], crp:[0.1, 50], sitting:[0, 18], pm25:[0, 150] };
 let state = { ...DEFAULTS };
 let events = [];               // health timeline, sorted by age
-const TABS = ['overview', 'factors', 'timeline', 'compare', 'lifespan', 'method'];
+const TABS = ['overview', 'factors', 'timeline', 'compare', 'lifespan', 'tools', 'method'];
+let partner = { ...PARTNER_DEFAULT };   // couple tool (js/tools.js); a saved-plan partner stays out of the link
 let compare = null;             // while comparing: { other: the plan not being edited, editing: 'A' | 'B' } (js/compare.js)
 let tab = 'overview';           // which tab is showing; part of the link so a link can open on it
 const KEYS = Object.keys(DEFAULTS);
@@ -74,6 +75,7 @@ function stateToHash() {
     parts.push('cmp=' + compare.editing.toLowerCase(), ...encodeState(ab.B.state, A.state, 'b.'));
     if (ab.B.events.length) parts.push('bev=' + encodeEvents(ab.B.events));
   }
+  if (!partner.plan && (partner.sex !== PARTNER_DEFAULT.sex || partner.age !== PARTNER_DEFAULT.age)) parts.push(`pt=${partner.sex}~${partner.age}`);
   if (tab !== 'overview') parts.push('tab=' + tab);
   return parts.join('&');
 }
@@ -92,6 +94,9 @@ function applyHash(h) {
   state = decodeState(p, DEFAULTS, '');
   events = decodeEvents(p.ev);
   tab = TABS.includes(p.tab) ? p.tab : 'overview';
+  partner = { ...PARTNER_DEFAULT };
+  const [psex, page] = String(p.pt || '').split('~');
+  if ((psex === 'M' || psex === 'F') && isFinite(+page) && page !== '') partner = { mode: 'average', sex: psex, age: Math.round(Math.min(100, Math.max(18, +page))) };
   // Links from before the timeline carried ticked what-ifs (wi=); they become changes dated today.
   const legacy = WHATIFS.filter(w => (p.wi || '').split(',').includes(w.id) && w.applies(state));
   if (legacy.length) events = sortEvents([...events, ...legacy.map(w => cleanEvent(w.event(state)))]).slice(0, TL_MAX_EVENTS);

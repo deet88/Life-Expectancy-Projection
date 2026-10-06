@@ -144,13 +144,15 @@ function lifetimes(S, age) {
 }
 
 // ── Bottom line ────────────────────────────────────────────────────────────
+// Lower-case only the first letter, so labels like "BMI 24" keep their acronyms mid-sentence.
+const lcFirst = t => t.charAt(0).toLowerCase() + t.slice(1);
 function bottomLine(p, full, base, sc, lev, spots, contrib) {
   const d = full.le - base.le, yrs = v => (Math.round(Math.abs(v) * 10) / 10).toFixed(1);
   const lines = [`Your estimate is ${(Math.round(full.le * 10) / 10).toFixed(1)}: ${Math.abs(d) < 0.05 ? 'right at' : yrs(d) + ' years ' + (d > 0 ? 'above' : 'below')} the national average, a Longevity Score of ${sc.score}.`];
   const worst = contrib.rows.slice().sort((a, b) => a.years - b.years)[0];
-  if (worst && worst.years <= -0.3) lines.push(`Your biggest drag is ${worst.label.toLowerCase()} (−${yrs(worst.years)} years).`);
+  if (worst && worst.years <= -0.3) lines.push(`Your biggest drag is ${lcFirst(worst.label)} (−${yrs(worst.years)} years).`);
   else lines.push('Nothing on your profile costs more than a few months versus the average.');
-  if (lev.length && lev[0].gain >= 0.1) lines.push(`Your biggest lever is “${lev[0].label.toLowerCase()}” (+${yrs(lev[0].gain)} years).`);
-  if (spots.length && spots[0].swing >= 0.5) lines.push(`Your biggest unknown is ${spots[0].label.split(' (')[0].toLowerCase()}, which could move the estimate by up to ${yrs(spots[0].swing)} years.`);
+  if (lev.length && lev[0].gain >= 0.1) lines.push(`Your biggest lever is “${lcFirst(lev[0].label)}” (+${yrs(lev[0].gain)} years).`);
+  if (spots.length && spots[0].swing >= 0.5) lines.push(`Your biggest unknown is ${lcFirst(spots[0].label.split(' (')[0])}, which could move the estimate by up to ${yrs(spots[0].swing)} years.`);
   return lines;
 }

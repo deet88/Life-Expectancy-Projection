@@ -11,6 +11,7 @@ ObjC.import('Foundation');
 
 const CWD = ObjC.unwrap($.NSFileManager.defaultManager.currentDirectoryPath);
 const HTML = CWD + '/index.html';
+var css = '';
 const src = ObjC.unwrap($.NSString.stringWithContentsOfFileEncodingError(
   $(HTML), $.NSUTF8StringEncoding, $()));
 
@@ -30,10 +31,10 @@ function stubEl() {
     classList: { add(){}, remove(){}, toggle(){}, contains(){ return false; } },
     appendChild(){}, setAttribute(k, v){ this['@' + k] = v; }, removeAttribute(){}, addEventListener(){},
     querySelectorAll(){ return []; }, querySelector(){ return null; }, focus(){}, click(){ clicks.push(this); },
-    getContext(){ return { fillRect(){}, drawImage(){}, save(){}, restore(){}, beginPath(){}, moveTo(){}, lineTo(){}, stroke(){}, fillText(){}, setLineDash(){} }; },
+    getContext(){ return { fillRect(){ fills++; }, strokeRect(){}, clearRect(){}, setTransform(){}, drawImage(){}, save(){}, restore(){}, beginPath(){}, moveTo(){}, lineTo(){}, stroke(){}, fillText(t){ texts.push(String(t)); }, setLineDash(){} }; },
     toDataURL(){ return 'data:image/png;base64,'; } };
 }
-var clicks = [];
+var clicks = [], fills = 0, texts = [];
 var els = {};
 var created = [];
 var document = {
@@ -81,22 +82,24 @@ function readFile(rel) {
   if (s.isNil()) throw new Error('cannot read ' + rel);
   return ObjC.unwrap(s);
 }
+css = readFile('css/app.css');
 const inline = src.split('<script>').slice(1).map(b => b.split('</script>')[0]);
 ok('page has one inline script block (theme, before first paint)', inline.length === 1, inline.length);
 const scriptFiles = [...src.matchAll(/<script src="([^":]+)"><\/script>/g)].map(m => m[1]);
 ok('page loads every script in dependency order',
-  scriptFiles.join() === 'data/lifetables.js,js/engine.js,js/timeline.js,js/insights.js,js/state.js,js/compare.js,js/onboarding.js,js/ui.js,js/ui-compare.js,js/ui-onboarding.js,js/main.js', scriptFiles.join());
+  scriptFiles.join() === 'data/lifetables.js,js/engine.js,js/timeline.js,js/insights.js,js/tools.js,js/state.js,js/compare.js,js/onboarding.js,js/share.js,js/ui.js,js/ui-compare.js,js/ui-onboarding.js,js/ui-tools.js,js/main.js', scriptFiles.join());
 const appSrc = scriptFiles.map(readFile).join('\n') + `
 ;({ summarize, adjustedQ, survival, lifeExp, ageAtPct, contributions, WHATIFS, withEvents, stateAt, cleanEvent, sortEvents, eventApplies, newEvent, encodeEvents, decodeEvents, describeEvent, shortEvent, timelineFactors, longevityScore, wholeParts, blindSpots, levers, alerts, lifetimes, bottomLine, PILLARS, LIFETIME_BANDS, BLIND_SPOTS, SCORE_PER_YEAR, setTab, TABS, startCompare, switchPlan, swapPlans, keepPlan, resetBToA, planDiff, resetKeyToA, resetEventsToA, plansAB, scorecard,
    readSlots, saveSlot, loadSlot, deleteSlot, encodeState, decodeState, ARCHETYPES, archetypePlan, QS_STEPS, QS_KEYS, quickStartState, TOUR,
-   KEY_LABELS, valueText, renderCompare, TL_SET, TL_DX, SBP_MEDIAN, FACTORS, FACTOR_BY_ID,
+   KEY_LABELS, valueText, renderCompare, jointSurvival, yearsAtPct, coupleSummary, planToAge, lifeWeeks, PARTNER_DEFAULT, slotPlan,
+   shareSummary, aiPrompt, exportPlan, importPlan, TL_SET, TL_DX, SBP_MEDIAN, FACTORS, FACTOR_BY_ID,
    factorMult, atten, baseQ, bmiOf, bmiHR, actHR, alcHR, sleepHR, sbpHR, fvHR, formerHR, interp, devProb, sbpAt,
    DEFAULTS, KEYS, HASH_KEYS, LIFETABLES, PREV, PARENT_HR, PARENT_DIST, PARENT_CODES, ALIVE_AGE, parentHR, SMOKE_HR, SMOKE_SPLIT, AGE_PREV,
    CALIBRATIONS, withBmi, diffLE, CHOICES, clampState, MAX_AGE, MAX_MULT, MIN_MULT, SOFT_FROM, GROUP_CAPS, BASE_YR, VASC_SHARE,
    stateToHash, applyHash, hashParams, clampState, onInput, onModeBtn, resetAll, syncControls, refreshAll,
-   toggleTheme, exportCsv, exportPng, renderFactorTable, renderCalibration,
+   setTheme, THEMES, exportCsv, exportPng, renderFactorTable, renderCalibration,
    addEvent, removeEvent, onTimelineEdit, plan,
-   state: () => state, events: () => events, tab: () => tab, compare: () => compare,
+   state: () => state, events: () => events, tab: () => tab, compare: () => compare, partner: () => partner, setPartner: v => { partner = v; },
    setState: v => { state = v; }, setEvents: v => { events = v; }, last: () => last })`;
 const A = eval(appSrc);
 
@@ -606,6 +609,9 @@ for (const p of [D, { ...D, age: 70, smoke: 'current', cigs: 'ge20', diabetes: '
     ok('prediabetes is flagged even when its row is small', d.length === 1 && /Prevention Program/.test(d[0].text)); }
   ok('diet questions are separate blind spots, each a single question', ['nuts', 'grains', 'meat', 'sugary', 'coffee'].every(k => A.blindSpots(D).some(b => b.key === k)) && !A.blindSpots(D).some(b => b.key === 'diet'));
   ok('smoker: bottom line names the drag and the lever', (() => { const l = A.bottomLine(bad, fb, A.summarize(bad, { baseline: true }), A.longevityScore(cb), A.levers(bad, fb), A.blindSpots(bad), cb).join(' '); return /smoking/.test(l) && /lever is “quit smoking”/.test(l); })());
+  { const heavy = A.withBmi({ ...D, age: 52 }, 31), fh = A.summarize(heavy), ch = A.contributions(heavy, fh), lv = A.levers(heavy, fh);
+    const l = A.bottomLine(heavy, fh, A.summarize(heavy, { baseline: true }), A.longevityScore(ch), lv, A.blindSpots(heavy), ch).join(' ');
+    ok('bottom line keeps acronyms (BMI) when it lower-cases a label', lv[0].id === 'healthyBmi' && l.includes('“reach a healthy weight (BMI 24)”'), l); }
   ok('smoker scores below the same person not smoking', A.longevityScore(cb).raw < A.longevityScore(A.contributions({ ...bad, smoke: 'never' }, A.summarize({ ...bad, smoke: 'never' }))).raw);
   ok('an inert timeline change is flagged', A.alerts({ ...D, events: [{ kind: 'quit', age: 50 }] }, A.summarize(D), A.contributions(D, A.summarize(D))).some(a => a.level === 'note' && /does nothing/.test(a.title)));
   ok('VO₂max is a blind spot until entered', A.blindSpots(D).some(b => b.key === 'vo2max') && !A.blindSpots({ ...D, vo2max: 40 }).some(b => b.key === 'vo2max'));
@@ -632,7 +638,7 @@ ok('page initialised with defaults', JSON.stringify(A.state()) === JSON.stringif
 ok('default state writes an empty hash', A.stateToHash() === '');
 ok('init rendered every chart', chartCalls.length >= 3, chartCalls.length);
 ok('two custom plugins registered (markers, barLabels)', plugins.map(p => p.id).sort().join() === 'barLabels,markers');
-ok('survival chart is a line chart with 3 datasets (avg, you, medians)', chartCalls.some(c => c.type === 'line' && c.data.datasets.length === 3));
+ok('survival chart is a line chart with 3 datasets (avg, you, medians)', chartCalls.some(c => c.type === 'line' && c.data.datasets[0].label === 'National average' && c.data.datasets.length === 3));
 ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' && c.options.indexAxis === 'y'));
 {
   // Chart.js resolves any function inside plugin options as a scriptable option
@@ -764,7 +770,7 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
   A.resetAll();
   Object.assign(A.state(), { smoke: 'current', cigs: '10to19' });
   const edit = (i, prop, value) => A.onTimelineEdit({ dataset: { ev: String(i), prop }, value: String(value) });
-  const lastLine = () => chartCalls.filter(c => c.type === 'line').pop();
+  const lastLine = () => chartCalls.filter(c => c.type === 'line' && c.data.datasets[0].label === 'National average').pop();   // the survival chart
   const le0 = A.summarize(A.state()).le;
   A.addEvent(A.WHATIFS.find(w => w.id === 'quitSmoking').event(A.state()));
   ok('adding a quick change puts it on the timeline, dated today', A.events().length === 1 && A.events()[0].kind === 'quit' && A.events()[0].age === 40);
@@ -943,13 +949,104 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
     ok(`tour step "${t.title}" names a real tab`, !t.tab || A.TABS.includes(t.tab));
   }
 }
-// Theme
+// Tools: couple, plan-to age, life in weeks
+{
+  A.resetAll();
+  const you = { ...D, age: 50, smoke: 'current' }, fy = A.summarize(you);
+  for (const [sex, age] of [['F', 47], ['M', 70], ['F', 25]]) {
+    const fp = A.summarize({ ...D, sex, age }, { baseline: true }), j = A.jointSurvival(fy.S, 50, fp.S, age);
+    let ok1 = true, ok2 = true;
+    for (let t = 0; t < j.either.length; t++) {
+      if (!(j.either[t] >= Math.max(j.s1[t], j.s2[t]) - 1e-12 && j.both[t] <= Math.min(j.s1[t], j.s2[t]) + 1e-12)) ok1 = false;
+      if (!near(j.either[t] + j.both[t], j.s1[t] + j.s2[t], 1e-12)) ok2 = false;
+    }
+    ok(`couple (${sex} ${age}): at least one ≥ either alone, both ≤ either alone`, ok1);
+    ok(`couple (${sex} ${age}): both + at least one = sum of the two (independence)`, ok2);
+    ok(`couple (${sex} ${age}): everyone alive today`, j.either[0] === 1 && j.both[0] === 1);
+  }
+  { const old = A.summarize({ ...D, age: 110 }, { baseline: true }), j = A.jointSurvival(fy.S, 50, old.S, 110);
+    ok('a partner of 110 leaves your own survival curve', j.either.slice(1).every((v, t) => near(v, j.s1[t + 1], 1e-12))); }
+  ok('yearsAtPct reads a straight line exactly', near(A.yearsAtPct([1, 0.75, 0.5, 0.25, 0], 0.6), 1.6, 1e-12) && A.yearsAtPct([1, 1, 1], 0.5) === 2);
+  const cs = A.coupleSummary(you, { mode: 'average', sex: 'F', age: 47 });
+  ok('average partner = the national table for their age and sex', near(cs.partnerLE, A.summarize({ ...D, sex: 'F', age: 47 }, { baseline: true }).le, 1e-12));
+  ok('the last survivor outlives the median of either alone', cs.last.median >= Math.max(fy.median - 50, A.summarize({ ...D, sex: 'F', age: 47 }, { baseline: true }).median - 47) - 1e-9);
+  ok('last survivor: median < 1-in-10 < 1-in-20', cs.last.median < cs.last.p90 && cs.last.p90 < cs.last.p95);
+  const pt = A.planToAge(fy, 50);
+  ok('plan-to ages: life expectancy < 1 in 10 < 1 in 20', fy.le < pt.p90 && pt.p90 < pt.p95 && pt.p90 === fy.p90);
+  ok('plan-to 1 in 20 matches the survival curve', fy.S[Math.floor(pt.p95)] >= 0.05 && fy.S[Math.floor(pt.p95) + 1] <= 0.05);
+  const lw = A.lifeWeeks(fy.S, 50), tail = fy.S.slice(100).reduce((a, b) => a + b, 0);
+  ok('weeks lived = age × 52', lw.lived === 2600 && lw.total === 5200);
+  ok('past weeks are certain', lw.alive(100) === 1 && lw.alive(2599) === 1);
+  ok(`expected weeks ahead match life expectancy (${f2(lw.expectedLeft / 52)} y vs ${f2(fy.le - 50)} − ${f2(tail)} past 100)`, Math.abs(lw.expectedLeft / 52 - (fy.le - 50 - tail)) < 0.6);
+  // Rendering
+  fills = 0; texts.length = 0;
+  A.refreshAll();
+  ok('plan-to cards rendered with copy buttons', (els.planTo.innerHTML.match(/data-copy=/g) || []).length === 4);
+  ok('couple chart: you, partner, at least one (dashed)', chartCalls.some(c => c.type === 'line' && c.data.datasets.map(d => d.label).join() === 'You,Partner,At least one of you' && c.data.datasets[2].borderDash));
+  ok('couple stats and table rendered', els.coupleStats.innerHTML.includes('at least one of you is alive') && (els.tblCouple.innerHTML.match(/<tr>/g) || []).length > 5);
+  ok('life in weeks drew all 5,200 weeks', fills >= 5200);
+  ok('share card shows the headline', texts.includes(els.heroLE.textContent));
+  ok('summary and AI prompt filled', els.sumText.value.includes('Life expectancy') && els.aiText.value.includes('Please:'));
+  // Partner in the link; a saved plan as the partner
+  A.setPartner({ mode: 'average', sex: 'M', age: 63 });
+  ok('the partner travels in the link', /(^|&)pt=M~63(&|$)/.test(A.stateToHash()));
+  A.applyHash('#a=50&pt=M~63');
+  ok('the partner comes back from a link', A.partner().sex === 'M' && A.partner().age === 63);
+  A.applyHash('#a=50&pt=X~abc');
+  ok('a hostile partner is the default partner', JSON.stringify(A.partner()) === JSON.stringify(A.PARTNER_DEFAULT) && !/pt=/.test(A.stateToHash()));
+  A.applyHash('#a=50&pt=F~400');
+  ok('a partner age is clamped', A.partner().age === 100);
+  localStorage._d = {};
+  A.resetAll(); Object.assign(A.state(), { age: 66, sex: 'F', diabetes: 'yes' }); A.saveSlot('Mum'); A.resetAll();
+  const mum = A.slotPlan('Mum');
+  ok('a saved plan can be read without loading it', mum.age === 66 && mum.diabetes === 'yes' && A.state().age === D.age);
+  ok('a missing saved plan is null', A.slotPlan('nobody') === null);
+  localStorage._d = {}; A.resetAll();
+}
+// Share & save
+{
+  A.resetAll();
+  const p = { ...D, age: 52, sbp: 141, activity: 30, events: A.sortEvents([A.cleanEvent({ kind: 'quit', age: 55 })]) }; p.smoke = 'current';
+  const full = A.summarize(p), base = A.summarize(p, { baseline: true }), c = A.contributions(p, full), sc = A.longevityScore(c);
+  const md = A.shareSummary(p, full, base, sc, c), txt = A.shareSummary(p, full, base, sc, c, { markdown: false }), priv = A.shareSummary(p, full, base, sc, c, { private: true });
+  ok('summary gives the headline, score and average', md.includes(f2(full.le).slice(0, -1)) && md.includes(`**${sc.score}**/100`) && md.includes('national average'));
+  ok('plain text has no markdown', !/\*\*|^- /m.test(txt) && txt.includes('•'));
+  ok('the summary lists the planned change', md.includes('Quit smoking at 55'));
+  ok('private: no age, no measurements, no ages on the timeline', !/, 52\)/.test(priv) && !/141 mmHg|30 min\/week/.test(priv) && !/ at 55/.test(priv) && /, man\)/.test(priv));
+  const ai = A.aiPrompt(p, full, base, sc, c, A.blindSpots(p));
+  ok('AI prompt lists every answer given', ['Blood pressure: 141', 'Exercise: 30 min/week', 'Smoking: current', 'Age: 52'].every(s => ai.includes(s)), ai.split('\n').slice(3, 12).join(' | '));
+  ok('AI prompt carries the timeline, the blanks and four questions', ai.includes('Quit smoking at age 55') && ai.includes('Left blank:') && /\n4\. /.test(ai));
+  // JSON: a link string inside, so import is link-validated
+  Object.assign(A.state(), { age: 61, vo2max: 33 }); A.addEvent({ kind: 'set', age: 63, field: 'alcohol', value: 0 });
+  A.startCompare(); A.state().smoke = 'former'; A.setPartner({ mode: 'average', sex: 'M', age: 59 });
+  const h = A.stateToHash(), file = JSON.stringify(A.exportPlan());
+  A.resetAll();
+  ok('import a plan file', A.importPlan(file).ok && A.stateToHash() === h);
+  ok('import refuses non-JSON', A.importPlan('not json').ok === false);
+  ok('import refuses other JSON', A.importPlan('{"hello":1}').ok === false && A.importPlan('null').ok === false);
+  ok('import refuses another version', /version 9/.test(A.importPlan(JSON.stringify({ app: 'life-expectancy-dashboard', version: 9, link: '' })).error));
+  A.importPlan(JSON.stringify({ app: 'life-expectancy-dashboard', version: 1, link: 'a=999&sm=vape&cmp=b&b.a=-5' }));
+  ok('an imported link is validated like any link', A.state().age === 18 && A.plansAB().A.state.age === 100 && A.plansAB().A.state.smoke === 'never');
+  A.importPlan(JSON.stringify({ app: 'life-expectancy-dashboard', version: 1, link: '' }));
+  ok('an empty plan file is the default plan', JSON.stringify(A.state()) === JSON.stringify(D) && A.compare() === null);
+  A.resetAll();
+}
+// Themes
 {
   const before = document.documentElement.dataset.theme;
-  A.toggleTheme();
-  ok('theme toggles', document.documentElement.dataset.theme !== before);
-  ok('theme persisted', localStorage.getItem('lifex-theme') === document.documentElement.dataset.theme);
-  A.toggleTheme();
+  A.setTheme('paper');
+  ok('theme changes', document.documentElement.dataset.theme === 'paper' && els.themeSel.value === 'paper');
+  ok('theme persisted', localStorage.getItem('lifex-theme') === 'paper');
+  A.setTheme('neon');
+  ok('an unknown theme is refused', document.documentElement.dataset.theme === 'paper');
+  ok('four themes, each with its own CSS block (or the default)', A.THEMES.join() === 'dark,light,paper,ocean'
+    && A.THEMES.filter(t => t !== 'dark').every(t => css.includes(`:root[data-theme="${t}"]`)));
+  ok('the first-paint script knows the same themes', src.includes("['dark', 'light', 'paper', 'ocean']"));
+  const si = localStorage.setItem; localStorage.setItem = () => { throw new Error('blocked'); };
+  A.setTheme('ocean');
+  ok('blocked storage: the theme still applies', document.documentElement.dataset.theme === 'ocean');
+  localStorage.setItem = si;
+  A.setTheme(before);
 }
 // Methodology table is rendered from FACTORS
 {

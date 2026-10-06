@@ -19,6 +19,7 @@ function refreshAll() {
   renderLevers(lev);
   renderLifetimes(full);
   renderCompare(full);
+  renderTools(p, full, base, sc, contrib, spots);
   renderDist(full);
   syncURL();
 }
@@ -41,6 +42,8 @@ function init() {
   syncThemeBtn();
   bindTimeline();
   bindCompare();
+  bindTools();
+  $('themeSel').addEventListener('change', e => setTheme(e.target.value));
   document.querySelectorAll('[data-tabbtn]').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tabbtn)));
   renderFactorTable();
   renderCalibration();
