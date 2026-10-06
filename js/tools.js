@@ -86,6 +86,11 @@ function coupleModel(you, pt, { widowhood = true } = {}) {
     youLE: yy.age + sumFrom1(youAlive) + 0.5, partnerLE: pp.age + sumFrom1(partnerAlive) + 0.5,
     youOutlive: youWidowed.reduce((x, y) => x + y, 0) + tie / 2, partnerOutlives: partnerWidowed.reduce((x, y) => x + y, 0) + tie / 2,
     yearsTogether: sumFrom1(both) + 0.5, yearsAloneYou: sumFrom1(onlyYou), yearsAlonePartner: sumFrom1(onlyPartner),
+    // Years alone *if* that person is the one left: the averages above include
+    // the cases where they die first (and are alone for no years at all).
+    youLeft: youWidowed.reduce((x, y) => x + y, 0), partnerLeft: partnerWidowed.reduce((x, y) => x + y, 0),
+    aloneIfYouOutlive: sumFrom1(onlyYou) / (youWidowed.reduce((x, y) => x + y, 0) || 1),
+    aloneIfPartnerOutlives: sumFrom1(onlyPartner) / (partnerWidowed.reduce((x, y) => x + y, 0) || 1),
     widowedAgeYou: medianAge(youWidowed, yy.age), widowedAgePartner: medianAge(partnerWidowed, pp.age),
     last: { median: yearsAtPct(either, 0.5), p90: yearsAtPct(either, 0.1), p95: yearsAtPct(either, 0.05) },
     at: (arr, t) => t < arr.length ? arr[t] : 0,

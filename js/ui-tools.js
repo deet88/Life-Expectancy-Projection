@@ -36,21 +36,26 @@ function renderTools(p, full, base, sc, contrib, spots) {
     + card('Couple: last survivor, 1 in 10', p.age + m.last.p90, `your age when it happens, around ${year + Math.round(m.last.p90)}`, false);
   $('planToNote').textContent = 'The FIRE dashboard calls this “Life expectancy” (its planning horizon): enter the plan-to age there, not your life expectancy. The couple figure uses the partner set below.';
 
-  // ── Couple: headline cards ──
-  const c = ink(), they = m.partnerSex === 'F' ? 'she' : 'he', them = m.partnerSex === 'F' ? 'her' : 'him';
-  const yrs = v => `${fmt1(v)} <small>years</small>`, ageAt = t => Math.round(p.age + t);
-  const cost = (a, b) => { const d = (a - b) * 12; return d < 0.5 ? 'under a month' : `${Math.round(d)} month${Math.round(d) === 1 ? '' : 's'}`; };
+  // ── Couple: headline cards, in plain sentences ──
+  const c = ink(), he = m.partnerSex === 'F' ? 'she' : 'he', him = m.partnerSex === 'F' ? 'her' : 'him', his = m.partnerSex === 'F' ? 'her' : 'his';
+  const He = he[0].toUpperCase() + he.slice(1), r = v => Math.round(v);
+  const months = d => { const n = Math.round(d * 12); return n < 1 ? 'under a month' : n === 1 ? '1 month' : `${n} months`; };
+  const years = v => `${r(v)} year${r(v) === 1 ? '' : 's'}`;
   $('coupleCards').innerHTML = `
-    <div class="couple-card"><div class="lbl">Who outlives whom</div>
-      <div class="split" role="img" aria-label="You outlive ${them}: ${fmtPct(m.youOutlive)}; ${they} outlives you: ${fmtPct(m.partnerOutlives)}"><span style="width:${m.youOutlive * 100}%;background:${c.you}"></span><span style="width:${m.partnerOutlives * 100}%;background:${c.planB}"></span></div>
-      You outlive ${them}: <b>${fmtPct(m.youOutlive)}</b> · ${they} outlives you: <b>${fmtPct(m.partnerOutlives)}</b></div>
-    <div class="couple-card"><div class="lbl">Years together, from now</div><div class="big">${yrs(m.yearsTogether)}</div>expected · you would be about ${ageAt(m.yearsTogether)}</div>
-    <div class="couple-card"><div class="lbl">Years on your own</div><div class="big">${yrs(m.yearsAloneYou)}</div>expected for you · ${fmt1(m.yearsAlonePartner)} for ${them}</div>
-    <div class="couple-card"><div class="lbl">If you are the one left</div><div class="big">${Math.round(m.widowedAgeYou)} <small>your likely age</small></div>if ${they} is: ${they} would be about ${Math.round(m.widowedAgePartner)}</div>
-    <div class="couple-card"><div class="lbl">One of you still alive</div><div class="big">${yrs(m.last.median)}</div>for half of couples like you · 1 in 10: ${fmt1(m.last.p90)} years (you ${ageAt(m.last.p90)})</div>
-    <div class="couple-card"><div class="lbl">Widowhood effect</div>${partner.widowhood
-      ? `<div class="big">${cost(ind.youLE, m.youLE)}</div>off your life expectancy · ${cost(ind.partnerLE, m.partnerLE)} off ${them === 'her' ? 'hers' : 'his'}`
-      : '<div class="big">off</div>the two lives are treated as independent'}</div>`;
+    <div class="couple-card"><div class="lbl">Who dies first</div>
+      <div class="split" role="img" aria-label="${fmtPct(m.youOutlive)} chance ${he} dies first; ${fmtPct(m.partnerOutlives)} chance you do"><span style="width:${m.youOutlive * 100}%;background:${c.you}"></span><span style="width:${m.partnerOutlives * 100}%;background:${c.planB}"></span></div>
+      <b>${fmtPct(m.youOutlive)}</b> chance ${he} dies first · <b>${fmtPct(m.partnerOutlives)}</b> chance you do</div>
+    <div class="couple-card"><div class="lbl">Your time together</div><div class="big">${years(m.yearsTogether)}</div>
+      on average, before the first of you dies</div>
+    <div class="couple-card"><div class="lbl">When the second of you dies</div><div class="big">${r(p.age + m.last.median)} <small>your age</small></div>
+      Half of couples like you have both died by the time you would be ${r(p.age + m.last.median)}. For 1 in 10, one of you is still alive at ${r(p.age + m.last.p90)}.</div>
+    <div class="couple-card"><div class="lbl">If ${he} dies first (${fmtPct(m.youOutlive)})</div><div class="big">${years(m.aloneIfYouOutlive)} <small>on your own</small></div>
+      on average, starting when you are about ${r(m.widowedAgeYou)}</div>
+    <div class="couple-card"><div class="lbl">If you die first (${fmtPct(m.partnerOutlives)})</div><div class="big">${years(m.aloneIfPartnerOutlives)} <small>on ${his} own</small></div>
+      on average, starting when ${he} is about ${r(m.widowedAgePartner)}</div>
+    <div class="couple-card"><div class="lbl">The cost of grief</div>${partner.widowhood
+      ? `<div class="big">${months(ind.youLE - m.youLE)} <small>for you</small></div>${months(ind.partnerLE - m.partnerLE)} for ${him}: a widowed person's risk of dying rises (the widowhood effect), averaged over every way things could go`
+      : `<div class="big">Off</div>Switched off: each of you keeps your own risk, whatever happens to the other`}</div>`;
 
   // ── Couple: who is still here (stacked) ──
   const xs = m.both.map((_, t) => p.age + t);
@@ -76,8 +81,8 @@ function renderTools(p, full, base, sc, contrib, spots) {
       <div class="tile-sub">chance you are both there</div></div>`).join('')
     : `<div class="hint">${partner.since ? 'No anniversary from the 10th to the 70th is still ahead.' : 'Add the year you got together to see the chance you both reach your anniversaries.'}</div>`;
   $('coupleNote').innerHTML = partner.widowhood
-    ? `<b>Linked, not independent.</b> After one of you dies, the survivor's death rate rises by the widowhood effect: ×${WIDOW_HR.M} for a man and ×${WIDOW_HR.F} for a woman, more in the first year (Moon et al. 2011). Your life expectancy as part of this couple is <b>${fmt1(m.youLE)}</b>, ${them === 'her' ? 'hers' : 'his'} <b>${fmt1(m.partnerLE)}</b>. The Methodology tab has the details.`
-    : `<b>Independent lives.</b> With the widowhood effect off, each of you keeps your own death rate whatever happens to the other: your life expectancy as a partnered person is <b>${fmt1(m.youLE)}</b>, ${them === 'her' ? 'hers' : 'his'} <b>${fmt1(m.partnerLE)}</b>.`;
+    ? `<b>Linked, not independent.</b> After one of you dies, the survivor's death rate rises by the widowhood effect: ×${WIDOW_HR.M} for a man and ×${WIDOW_HR.F} for a woman, more in the first year (Moon et al. 2011). Your life expectancy as part of this couple is <b>${fmt1(m.youLE)}</b>, ${him === 'her' ? 'hers' : 'his'} <b>${fmt1(m.partnerLE)}</b>. The Methodology tab has the details.`
+    : `<b>Independent lives.</b> With the widowhood effect off, each of you keeps your own death rate whatever happens to the other: your life expectancy as a partnered person is <b>${fmt1(m.youLE)}</b>, ${him === 'her' ? 'hers' : 'his'} <b>${fmt1(m.partnerLE)}</b>.`;
 
   // Life in weeks
   drawWeeks(full, p.age);

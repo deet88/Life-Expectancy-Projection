@@ -978,6 +978,8 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
       ok(`couple (${tag}): who outlives whom adds up to 1`, near(m.youOutlive + m.partnerOutlives, 1, 1e-9));
       ok(`couple (${tag}): years together + years alone = your life expectancy in the couple`, near(m.yearsTogether + m.yearsAloneYou, m.youLE - you.age, 1e-9));
       ok(`couple (${tag}): last survivor median < 1 in 10 < 1 in 20`, m.last.median < m.last.p90 && m.last.p90 < m.last.p95);
+      ok(`couple (${tag}): years alone if you are the one left × the chance you are = the overall average (and the same for your partner)`,
+        near(m.aloneIfYouOutlive * m.youLeft, m.yearsAloneYou, 1e-9) && near(m.aloneIfPartnerOutlives * m.partnerLeft, m.yearsAlonePartner, 1e-9) && m.aloneIfYouOutlive > m.yearsAloneYou);
     }
     // Off = the independent calculation exactly, for both people (as partnered)
     const off = A.coupleModel(you, pt, { widowhood: false }), on = A.coupleModel(you, pt);
