@@ -385,3 +385,18 @@ footer { text-align: center; font-size: 11px; color: var(--faint); padding: 10px
 .share-opts .mode-row { display: inline-flex; gap: 4px; }
 .share-text { width: 100%; resize: vertical; padding: 8px; border-radius: 6px; border: 1px solid var(--border2); background: var(--card2); color: var(--text); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
 label.btn { cursor: pointer; }
+
+/* ── Couple ───────────────────────────────────────────────────────────── */
+.pt-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px 14px; padding: 12px; margin-bottom: 12px;
+  border-radius: var(--radius); background: var(--card2); border: 1px solid var(--border); }
+.pt-form .chk { align-self: end; padding-bottom: 6px; }
+.couple-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+@media (max-width: 900px) { .couple-cards { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .couple-cards { grid-template-columns: 1fr; } }
+.couple-card { padding: 10px 12px; border-radius: var(--radius); background: var(--card2); border: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+.couple-card .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+.couple-card .big { font-size: 22px; font-weight: 800; color: var(--strong); font-variant-numeric: tabular-nums; margin: 2px 0; }
+.couple-card .big small { font-size: 12px; font-weight: 600; color: var(--muted); }
+.split { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin: 6px 0 4px; gap: 2px; }
+.split span { display: block; height: 100%; }
+.tiles.anniv { grid-template-columns: 1fr 1fr; }

@@ -91,7 +91,7 @@ ok('page loads every script in dependency order',
 const appSrc = scriptFiles.map(readFile).join('\n') + `
 ;({ summarize, adjustedQ, survival, lifeExp, ageAtPct, contributions, WHATIFS, withEvents, stateAt, cleanEvent, sortEvents, eventApplies, newEvent, encodeEvents, decodeEvents, describeEvent, shortEvent, timelineFactors, longevityScore, wholeParts, blindSpots, levers, alerts, lifetimes, bottomLine, PILLARS, LIFETIME_BANDS, BLIND_SPOTS, SCORE_PER_YEAR, setTab, TABS, startCompare, switchPlan, swapPlans, keepPlan, resetBToA, planDiff, resetKeyToA, resetEventsToA, plansAB, scorecard,
    readSlots, saveSlot, loadSlot, deleteSlot, encodeState, decodeState, ARCHETYPES, archetypePlan, QS_STEPS, QS_KEYS, quickStartState, TOUR,
-   KEY_LABELS, valueText, renderCompare, jointSurvival, yearsAtPct, coupleSummary, planToAge, lifeWeeks, PARTNER_DEFAULT, slotPlan,
+   KEY_LABELS, valueText, renderCompare, jointSurvival, yearsAtPct, coupleModel, partnerPlan, partnerStarter, anniversaries, WIDOW_HR, WIDOW_FIRST_YEAR, PARTNER_FORM_KEYS, planToAge, lifeWeeks, PARTNER_DEFAULT, slotPlan,
    shareSummary, aiPrompt, exportPlan, importPlan, TL_SET, TL_DX, SBP_MEDIAN, FACTORS, FACTOR_BY_ID,
    factorMult, atten, baseQ, bmiOf, bmiHR, actHR, alcHR, sleepHR, sbpHR, fvHR, formerHR, interp, devProb, sbpAt,
    DEFAULTS, KEYS, HASH_KEYS, LIFETABLES, PREV, PARENT_HR, PARENT_DIST, PARENT_CODES, ALIVE_AGE, parentHR, SMOKE_HR, SMOKE_SPLIT, AGE_PREV,
@@ -967,10 +967,58 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
   { const old = A.summarize({ ...D, age: 110 }, { baseline: true }), j = A.jointSurvival(fy.S, 50, old.S, 110);
     ok('a partner of 110 leaves your own survival curve', j.either.slice(1).every((v, t) => near(v, j.s1[t + 1], 1e-12))); }
   ok('yearsAtPct reads a straight line exactly', near(A.yearsAtPct([1, 0.75, 0.5, 0.25, 0], 0.6), 1.6, 1e-12) && A.yearsAtPct([1, 1, 1], 0.5) === 2);
-  const cs = A.coupleSummary(you, { mode: 'average', sex: 'F', age: 47 });
-  ok('average partner = the national table for their age and sex', near(cs.partnerLE, A.summarize({ ...D, sex: 'F', age: 47 }, { baseline: true }).le, 1e-12));
-  ok('the last survivor outlives the median of either alone', cs.last.median >= Math.max(fy.median - 50, A.summarize({ ...D, sex: 'F', age: 47 }, { baseline: true }).median - 47) - 1e-9);
-  ok('last survivor: median < 1-in-10 < 1-in-20', cs.last.median < cs.last.p90 && cs.last.p90 < cs.last.p95);
+  // The linked couple model
+  const avgF47 = { mode: 'average', sex: 'F', age: 47 }, keys = ['both', 'onlyYou', 'onlyPartner'];
+  for (const [label, pt] of [['average F 47', avgF47], ['average M 61', { mode: 'average', sex: 'M', age: 61 }],
+      ['described F 44', { mode: 'custom', sex: 'F', age: 44, state: { ...A.partnerStarter('F', 44), smoke: 'current', cigs: 'ge20' } }]]) {
+    for (const widowhood of [true, false]) {
+      const m = A.coupleModel(you, pt, { widowhood }), tag = `${label}, widowhood ${widowhood ? 'on' : 'off'}`;
+      ok(`couple (${tag}): the states add up to everyone, every year`, m.both.every((b, t) => b + m.onlyYou[t] + m.onlyPartner[t] <= 1 + 1e-12 && b >= 0 && m.onlyYou[t] >= 0 && m.onlyPartner[t] >= 0));
+      ok(`couple (${tag}): everyone has died by the end`, m.either[m.either.length - 1] < 1e-9);
+      ok(`couple (${tag}): who outlives whom adds up to 1`, near(m.youOutlive + m.partnerOutlives, 1, 1e-9));
+      ok(`couple (${tag}): years together + years alone = your life expectancy in the couple`, near(m.yearsTogether + m.yearsAloneYou, m.youLE - you.age, 1e-9));
+      ok(`couple (${tag}): last survivor median < 1 in 10 < 1 in 20`, m.last.median < m.last.p90 && m.last.p90 < m.last.p95);
+    }
+    // Off = the independent calculation exactly, for both people (as partnered)
+    const off = A.coupleModel(you, pt, { widowhood: false }), on = A.coupleModel(you, pt);
+    const sy = A.summarize({ ...you, partnered: true }), pp = { ...A.partnerPlan(pt, you), partnered: true };
+    const sp = pt.mode === 'average' ? A.summarize(pp, { neutral: new Set(A.FACTORS.map(f => f.id).filter(id => id !== 'partnered')) }) : A.summarize(pp);
+    const ind = A.jointSurvival(sy.S, you.age, sp.S, pp.age);
+    ok(`couple (${label}): widowhood off = two independent lives, every year`, ind.either.every((e, t) => near(e, off.either[t], 1e-12) && near(ind.s1[t], off.youAlive[t], 1e-12) && near(ind.s2[t], off.partnerAlive[t], 1e-12)));
+    ok(`couple (${label}): the widowhood effect shortens both lives`, on.youLE < off.youLE && on.partnerLE <= off.partnerLE && on.yearsTogether === off.yearsTogether);
+  }
+  { const man = A.coupleModel({ ...D, sex: 'M', age: 60 }, { mode: 'average', sex: 'F', age: 60 }), manOff = A.coupleModel({ ...D, sex: 'M', age: 60 }, { mode: 'average', sex: 'F', age: 60 }, { widowhood: false });
+    ok('widowhood costs a man more than a woman of the same age', (manOff.youLE - man.youLE) > (manOff.partnerLE - man.partnerLE)); }
+  { // A partner of 110 dies this year for certain, so from next year you are a widower: your survival must
+    // follow your own death rates raised by W × first-year factor for one year, then by W.
+    const man = { ...D, sex: 'M', age: 60, partnered: true }, q = A.adjustedQ(man), m = A.coupleModel(man, { mode: 'average', sex: 'F', age: 110 });
+    const W = A.WIDOW_HR.M, Fy = A.WIDOW_FIRST_YEAR, r = (x, k) => Math.pow(1 - q[x], k);
+    ok('certain widowhood: the first year carries W × the first-year factor', near(m.youAlive[1], 1 - q[60], 1e-12) && near(m.youAlive[2], m.youAlive[1] * r(61, W * Fy), 1e-12));
+    ok('certain widowhood: later years carry W', near(m.youAlive[3], m.youAlive[2] * r(62, W), 1e-12) && near(m.youAlive[10], m.youAlive[9] * r(69, W), 1e-12));
+    const woman = A.coupleModel({ ...man, sex: 'F' }, { mode: 'average', sex: 'M', age: 110 }), qw = A.adjustedQ({ ...man, sex: 'F' });
+    { // The mirror image: you are 110, so your partner is the one widowed, and carries their own sex's figure.
+      const neutral = new Set(A.FACTORS.map(f => f.id).filter(id => id !== 'partnered'));
+      const mp = A.coupleModel({ ...D, sex: 'M', age: 110 }, { mode: 'average', sex: 'F', age: 60 }), qp = A.adjustedQ({ ...D, sex: 'F', age: 60, partnered: true }, { neutral });
+      ok('certain widowhood, partner side: she carries the women\'s figure, not yours',
+        near(mp.partnerAlive[2], mp.partnerAlive[1] * Math.pow(1 - qp[61], A.WIDOW_HR.F * A.WIDOW_FIRST_YEAR), 1e-12) && near(mp.partnerAlive[3], mp.partnerAlive[2] * Math.pow(1 - qp[62], A.WIDOW_HR.F), 1e-12)); }
+    ok('certain widowhood: a widow carries the women\'s figure', near(woman.youAlive[3], woman.youAlive[2] * Math.pow(1 - qw[62], A.WIDOW_HR.F), 1e-12)); }
+  ok('the first year after a loss is the hardest (×' + A.WIDOW_FIRST_YEAR.toFixed(3) + ')', near(A.WIDOW_FIRST_YEAR, (1.41 + 1.14) / 2 / 1.12, 1e-12) && A.WIDOW_FIRST_YEAR > 1 && A.WIDOW_HR.M === 1.22 && A.WIDOW_HR.F === 1.03);
+  { const m = A.coupleModel(you, avgF47), sp = A.summarize({ ...D, sex: 'F', age: 47, partnered: true }, { neutral: new Set(A.FACTORS.map(f => f.id).filter(id => id !== 'partnered')) });
+    const off = A.coupleModel(you, avgF47, { widowhood: false });
+    ok('an average partner is the average partnered person (above the national average)', near(off.partnerLE, sp.le, 1e-9) && off.partnerLE > A.summarize({ ...D, sex: 'F', age: 47 }, { baseline: true }).le); }
+  { const healthy = A.coupleModel(you, { mode: 'custom', sex: 'F', age: 47, state: A.partnerStarter('F', 47) }),
+          smoker = A.coupleModel(you, { mode: 'custom', sex: 'F', age: 47, state: { ...A.partnerStarter('F', 47), smoke: 'current', cigs: 'ge20' } });
+    ok('a described partner who smokes dies sooner, and you are more often the one left', smoker.partnerLE < healthy.partnerLE && smoker.youOutlive > healthy.youOutlive && smoker.yearsAloneYou > healthy.yearsAloneYou); }
+  { const own = A.coupleModel({ ...you, partnered: false, events: [A.cleanEvent({ kind: 'set', age: 55, field: 'partnered', value: false })] }, avgF47), ref = A.coupleModel({ ...you, partnered: true }, avgF47);
+    ok('in the couple you are partnered, whatever the sidebar or timeline says', near(own.youLE, ref.youLE, 1e-12)); }
+  { const m = A.coupleModel(you, avgF47);
+    ok('the age you are widowed falls between today and the end', m.widowedAgeYou > you.age && m.widowedAgeYou < 111 && m.widowedAgePartner > 47);
+    const an = A.anniversaries(m, 2000, 2026);
+    ok('anniversaries: the next four still ahead, each less likely than the last', an.map(x => x.n).join() === '30,40,50,60' && an.every((x, i) => i === 0 || x.both < an[i - 1].both) && near(an[0].both, m.both[4], 1e-12));
+    ok('no anniversaries before you met', A.anniversaries(m, 2026, 2026).map(x => x.n).join() === '10,20,25,30'); }
+  ok('the partner form asks only real inputs, all in Quick Start', A.PARTNER_FORM_KEYS.every(k => A.KEYS.includes(k) && A.QS_KEYS.includes(k)));
+  { const st = A.partnerStarter('M', 60);
+    ok('a described partner starts in range (clamping changes nothing)', JSON.stringify(A.clampState({ ...D, ...st })) === JSON.stringify({ ...D, ...st }) && st.sbp === Math.round(A.interp(A.SBP_MEDIAN, 60))); }
   const pt = A.planToAge(fy, 50);
   ok('plan-to ages: life expectancy < 1 in 10 < 1 in 20', fy.le < pt.p90 && pt.p90 < pt.p95 && pt.p90 === fy.p90);
   ok('plan-to 1 in 20 matches the survival curve', fy.S[Math.floor(pt.p95)] >= 0.05 && fy.S[Math.floor(pt.p95) + 1] <= 0.05);
@@ -982,8 +1030,9 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
   fills = 0; texts.length = 0;
   A.refreshAll();
   ok('plan-to cards rendered with copy buttons', (els.planTo.innerHTML.match(/data-copy=/g) || []).length === 4);
-  ok('couple chart: you, partner, at least one (dashed)', chartCalls.some(c => c.type === 'line' && c.data.datasets.map(d => d.label).join() === 'You,Partner,At least one of you' && c.data.datasets[2].borderDash));
-  ok('couple stats and table rendered', els.coupleStats.innerHTML.includes('at least one of you is alive') && (els.tblCouple.innerHTML.match(/<tr>/g) || []).length > 5);
+  ok('couple chart: both / only you / only partner, stacked', chartCalls.some(c => c.type === 'line' && c.data.datasets.map(d => d.label).join() === 'Both of you,Only you,Only your partner' && c.options.scales.y.stacked));
+  ok('couple cards and table rendered', (els.coupleCards.innerHTML.match(/class="couple-card"/g) || []).length === 6 && (els.tblCouple.innerHTML.match(/<tr>/g) || []).length > 5);
+  ok('no anniversaries without a year together', els.annivTiles.innerHTML.includes('Add the year'));
   ok('life in weeks drew all 5,200 weeks', fills >= 5200);
   ok('share card shows the headline', texts.includes(els.heroLE.textContent));
   ok('summary and AI prompt filled', els.sumText.value.includes('Life expectancy') && els.aiText.value.includes('Please:'));
@@ -996,6 +1045,16 @@ ok('tornado is a horizontal bar chart', chartCalls.some(c => c.type === 'bar' &&
   ok('a hostile partner is the default partner', JSON.stringify(A.partner()) === JSON.stringify(A.PARTNER_DEFAULT) && !/pt=/.test(A.stateToHash()));
   A.applyHash('#a=50&pt=F~400');
   ok('a partner age is clamped', A.partner().age === 100);
+  A.setPartner({ ...A.PARTNER_DEFAULT, mode: 'custom', sex: 'M', age: 58, state: { ...A.partnerStarter('M', 58), smoke: 'former', quitYears: 12, diabetes: 'yes', af: true, weight: 101 }, widowhood: false, since: 1994 });
+  const hp = A.stateToHash(), before = JSON.stringify(A.partner());
+  ok('a described partner travels in the link', /(^|&)pt=M~58~c(&|$)/.test(hp) && /p\.sm=former/.test(hp) && /p\.dm=yes/.test(hp) && /(^|&)pw=0(&|$)/.test(hp) && /(^|&)ps=1994(&|$)/.test(hp), hp);
+  A.applyHash('#' + hp);
+  ok('…and comes back exactly', JSON.stringify(A.partner()) === before, JSON.stringify(A.partner()));
+  A.applyHash('#a=50&pt=F~44~c&p.sm=vape&p.w=9999&p.a=12&ps=2999&pw=maybe');
+  ok('a hostile described partner is cleaned: bad answers dropped or clamped, future year and odd toggle ignored',
+    A.partner().mode === 'custom' && A.partner().state.smoke === 'never' && A.partner().state.weight === 300 && A.partner().age === 44 && A.partner().since === null && A.partner().widowhood === true && !('age' in A.partner().state));
+  A.applyHash('#a=50&ps=1700');
+  ok('a year together before 1940 is ignored', A.partner().since === null);
   localStorage._d = {};
   A.resetAll(); Object.assign(A.state(), { age: 66, sex: 'F', diabetes: 'yes' }); A.saveSlot('Mum'); A.resetAll();
   const mum = A.slotPlan('Mum');

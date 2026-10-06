@@ -641,20 +641,30 @@
     <section class="panel" data-tab="tools" id="couplePanel">
       <div class="panel-head">
         <h2>You and a partner</h2>
-        <p>The chance that one or both of you are still alive · the two lives are treated as independent</p>
+        <p>Two lives, linked: after one of you dies, the survivor carries the widowhood effect</p>
       </div>
       <div class="pt-controls">
         <label>Partner <select id="ptMode" aria-label="Partner profile"></select></label>
         <span class="mode-row" id="ptSexRow"><button type="button" class="mode-btn" data-pt-sex="M">Male</button><button type="button" class="mode-btn" data-pt-sex="F">Female</button></span>
         <label id="ptAgeLabel">Age <input type="number" id="ptAge" min="18" max="100" step="1"></label>
+        <label>Together since <input type="number" id="ptSince" min="1940" step="1" placeholder="year" aria-label="Year you got together"></label>
+        <label class="chk"><input type="checkbox" id="ptWidow" checked> Widowhood effect</label>
       </div>
-      <div class="two-col">
+      <div class="pt-form" id="ptForm" hidden></div>
+      <p class="hint" id="ptNote"></p>
+      <div class="couple-cards" id="coupleCards"></div>
+      <div class="two-col" style="margin-top:14px">
         <div>
-          <div class="chart-wrap chart-sm"><canvas id="chCouple" role="img" aria-label="Chance you, your partner, and at least one of you are alive, by your age. The same figures are in the table view."></canvas></div>
+          <div class="sub-head">Who is still here</div>
+          <div class="chart-wrap chart-sm"><canvas id="chCouple" role="img" aria-label="Stacked chance, by your age, that both of you, only you, or only your partner are alive. The same figures are in the table view."></canvas></div>
           <div class="legend" id="legCouple"></div>
           <details class="tbl"><summary>Table view</summary><div class="table-scroll"><table class="data" id="tblCouple"></table></div></details>
         </div>
-        <div class="couple-stats" id="coupleStats"></div>
+        <div>
+          <div class="sub-head">Anniversaries</div>
+          <div class="tiles anniv" id="annivTiles"></div>
+          <div class="note-box" style="margin-top:12px" id="coupleNote"></div>
+        </div>
       </div>
     </section>
 
@@ -724,6 +734,16 @@
           <h3 style="margin-top:16px">Calibration checks</h3>
           <p>The pipeline is checked against published life-expectancy differences that the source studies report directly. These are computed live from this page's own engine:</p>
           <div class="calib" id="calib" style="margin-top:8px"></div>
+        </div>
+        <div class="method-section">
+          <h3>Couples and the widowhood effect</h3>
+          <ul>
+            <li><strong>Two linked lives.</strong> Each partner's death rate comes from the same engine, with both counted as partnered while both are alive. After one dies, the survivor's death rate is multiplied by the widowhood effect for their sex: <b>1.22 for men, 1.03 for women</b>, against people still married (<a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC3157386/" target="_blank" rel="noopener">Moon et al. 2011</a>, a meta-analysis of 15 cohorts and 2.3 million people).</li>
+            <li><strong>Worst in the first months.</strong> The same meta-analysis finds 1.41 within six months of the loss and 1.14 after, against 1.12 overall, so the first year after the loss carries the average of those two, relative to the overall figure (×1.14).</li>
+            <li><strong>Estimates for women vary.</strong> A study of 373,189 elderly US couples (<a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC2636447/" target="_blank" rel="noopener">Elwert &amp; Christakis 2008</a>) found 1.18 for men and 1.16 for women; the pooled 1.03 for women is the more conservative choice.</li>
+            <li><strong>Not the "not partnered" factor.</strong> The model's 1.24 for being unpartnered pools never-married, divorced and widowed people; for a survivor the widowhood-specific figures are the better evidence, so the survivor keeps their partnered rate times the widowhood effect.</li>
+            <li><strong>What is left out.</strong> Couples also share habits, money and environment, which links their deaths beyond grief. Describing your partner captures their own habits; nothing here models deaths you share (an accident, say), so "at least one of you alive" is still slightly optimistic. The independent version is one click away for comparison.</li>
+          </ul>
         </div>
         <div class="method-section method-full">
           <h3>How much can 35 variables predict? — and the rules that keep them honest</h3>

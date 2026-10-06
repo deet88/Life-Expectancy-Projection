@@ -67,6 +67,30 @@ function decodeState(p, base, prefix) {
   }
   return clampState(next);
 }
+// The couple tool's partner in the link: pt=F~49 (average), pt=F~49~c plus p.<key>
+// answers (described), pw=0 (widowhood effect off), ps=1998 (together since).
+// A saved-plan partner lives in this browser only, so it stays out of the link.
+function partnerParts() {
+  const parts = [];
+  if (partner.mode === 'custom') parts.push(`pt=${partner.sex}~${partner.age}~c`,
+    ...encodeState({ ...DEFAULTS, ...partner.state }, DEFAULTS, 'p.').filter(x => PARTNER_FORM_KEYS.some(k => x.startsWith(`p.${HASH_KEYS[k]}=`))));
+  else if (partner.mode === 'average' && (partner.sex !== PARTNER_DEFAULT.sex || partner.age !== PARTNER_DEFAULT.age)) parts.push(`pt=${partner.sex}~${partner.age}`);
+  if (!partner.widowhood) parts.push('pw=0');
+  if (partner.since) parts.push('ps=' + partner.since);
+  return parts;
+}
+function partnerFromParams(p) {
+  const out = { ...PARTNER_DEFAULT };
+  const [psex, page, flag] = String(p.pt || '').split('~');
+  if ((psex === 'M' || psex === 'F') && page !== undefined && page !== '' && isFinite(+page)) {
+    out.sex = psex; out.age = Math.round(Math.min(100, Math.max(18, +page)));
+    if (flag === 'c') { const st = decodeState(p, DEFAULTS, 'p.'); out.mode = 'custom'; out.state = Object.fromEntries(PARTNER_FORM_KEYS.map(k => [k, st[k]])); }
+  }
+  if (p.pw === '0') out.widowhood = false;
+  const since = +p.ps;
+  if (Number.isInteger(since) && since >= 1940 && since <= BASE_YR) out.since = since;
+  return out;
+}
 function stateToHash() {
   const ab = plansAB(), A = ab ? ab.A : { state, events };
   const parts = encodeState(A.state, DEFAULTS, '');
@@ -75,7 +99,7 @@ function stateToHash() {
     parts.push('cmp=' + compare.editing.toLowerCase(), ...encodeState(ab.B.state, A.state, 'b.'));
     if (ab.B.events.length) parts.push('bev=' + encodeEvents(ab.B.events));
   }
-  if (!partner.plan && (partner.sex !== PARTNER_DEFAULT.sex || partner.age !== PARTNER_DEFAULT.age)) parts.push(`pt=${partner.sex}~${partner.age}`);
+  parts.push(...partnerParts());
   if (tab !== 'overview') parts.push('tab=' + tab);
   return parts.join('&');
 }
@@ -94,9 +118,7 @@ function applyHash(h) {
   state = decodeState(p, DEFAULTS, '');
   events = decodeEvents(p.ev);
   tab = TABS.includes(p.tab) ? p.tab : 'overview';
-  partner = { ...PARTNER_DEFAULT };
-  const [psex, page] = String(p.pt || '').split('~');
-  if ((psex === 'M' || psex === 'F') && isFinite(+page) && page !== '') partner = { mode: 'average', sex: psex, age: Math.round(Math.min(100, Math.max(18, +page))) };
+  partner = partnerFromParams(p);
   // Links from before the timeline carried ticked what-ifs (wi=); they become changes dated today.
   const legacy = WHATIFS.filter(w => (p.wi || '').split(',').includes(w.id) && w.applies(state));
   if (legacy.length) events = sortEvents([...events, ...legacy.map(w => cleanEvent(w.event(state)))]).slice(0, TL_MAX_EVENTS);

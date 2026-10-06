@@ -6,46 +6,78 @@ let lastTools = null;   // the inputs of the last render, for the copy buttons
 
 function renderTools(p, full, base, sc, contrib, spots) {
   lastTools = { p, full, base, sc, contrib, spots };
-  // Partner: a saved plan, or the national average for an age and sex
+  // ── Partner controls ──
   const slots = readSlots();
-  if (partner.mode === 'slot' && !slots.some(x => x.name === partner.name)) partner = { ...PARTNER_DEFAULT };
-  $('ptMode').innerHTML = '<option value="">Average for their age and sex</option>'
-    + slots.map(x => `<option value="${escapeHtml(x.name)}"${partner.mode === 'slot' && partner.name === x.name ? ' selected' : ''}>Saved plan: ${escapeHtml(x.name)}</option>`).join('');
+  if (partner.mode === 'slot' && !slots.some(x => x.name === partner.name)) partner = { ...partner, mode: 'average' };
+  const opt = (v, l) => `<option value="${escapeHtml(v)}"${ptModeValue() === v ? ' selected' : ''}>${l}</option>`;
+  $('ptMode').innerHTML = opt('average', 'Average for their age and sex') + opt('custom', 'Describe them…')
+    + slots.map(x => opt('slot:' + x.name, `Saved plan: ${escapeHtml(x.name)}`)).join('');
   $('ptSexRow').hidden = $('ptAgeLabel').hidden = partner.mode === 'slot';
   document.querySelectorAll('[data-pt-sex]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.ptSex === partner.sex)));
-  $('ptAge').value = partner.age;
-  const cs = coupleSummary(p, partner.mode === 'slot' ? { plan: slotPlan(partner.name) } : partner);
+  $('ptAge').value = partner.age; $('ptSince').value = partner.since || ''; $('ptSince').max = BASE_YR; $('ptWidow').checked = partner.widowhood;
+  $('ptForm').hidden = partner.mode !== 'custom';
+  if (partner.mode === 'custom') {
+    const ans = { units: p.units, ...partner.state };
+    $('ptForm').innerHTML = QS_STEPS.flatMap(st => st.fields).filter(f => PARTNER_FORM_KEYS.includes(f.key)).map(f => formField(f, ans, 'pf')).join('');
+  }
+  const pt = partner.mode === 'slot' ? { mode: 'slot', plan: slotPlan(partner.name) } : partner;
+  const m = coupleModel(p, pt, { widowhood: partner.widowhood });
+  const ind = partner.widowhood ? coupleModel(p, pt, { widowhood: false }) : m;
+  $('ptNote').textContent = (p.partnered ? '' : 'Your sidebar says you are not partnered; here you are, of course. ')
+    + (partner.mode === 'average' ? 'An average partner is the average partnered person of that age and sex in your country.' : '');
 
-  // Plan-to ages
-  const pt = planToAge(full, p.age), year = new Date().getFullYear(), inYear = a => year + Math.round(a - p.age);
+  // ── Plan-to ages ──
+  const pta = planToAge(full, p.age), year = BASE_YR, inYear = a => year + Math.round(a - p.age);
   const card = (lbl, v, sub, key) => `<div class="plan-card${key ? ' key' : ''}"><div class="lbl">${lbl}</div><div class="num">${Math.round(v)}</div>
     <div class="sub">${sub}</div><button type="button" class="btn btn-xs" data-copy="${Math.round(v)}">Copy ${Math.round(v)}</button></div>`;
-  const lastAge = t => p.age + t;
   $('planTo').innerHTML = card('Life expectancy', full.le, 'the money runs out for about half of people like you', false)
-    + card('Plan to (1 in 10 live longer)', pt.p90, `around ${inYear(pt.p90)}`, true)
-    + card('Plan to (1 in 20 live longer)', pt.p95, `around ${inYear(pt.p95)}`, false)
-    + card('Couple: last survivor, 1 in 10', lastAge(cs.last.p90), `your age when it happens, around ${year + Math.round(cs.last.p90)}`, false);
+    + card('Plan to (1 in 10 live longer)', pta.p90, `around ${inYear(pta.p90)}`, true)
+    + card('Plan to (1 in 20 live longer)', pta.p95, `around ${inYear(pta.p95)}`, false)
+    + card('Couple: last survivor, 1 in 10', p.age + m.last.p90, `your age when it happens, around ${year + Math.round(m.last.p90)}`, false);
   $('planToNote').textContent = 'The FIRE dashboard calls this “Life expectancy” (its planning horizon): enter the plan-to age there, not your life expectancy. The couple figure uses the partner set below.';
 
-  // Couple chart, by your age
-  const c = ink(), xs = cs.j.either.map((_, t) => p.age + t);
-  const series = (data, label, color, extra) => ({ label, data: data.map((y, i) => ({ x: xs[i], y })), borderColor: color, borderWidth: 2.5, pointRadius: 0, tension: 0.2, ...extra });
+  // ── Couple: headline cards ──
+  const c = ink(), they = m.partnerSex === 'F' ? 'she' : 'he', them = m.partnerSex === 'F' ? 'her' : 'him';
+  const yrs = v => `${fmt1(v)} <small>years</small>`, ageAt = t => Math.round(p.age + t);
+  const cost = (a, b) => { const d = (a - b) * 12; return d < 0.5 ? 'under a month' : `${Math.round(d)} month${Math.round(d) === 1 ? '' : 's'}`; };
+  $('coupleCards').innerHTML = `
+    <div class="couple-card"><div class="lbl">Who outlives whom</div>
+      <div class="split" role="img" aria-label="You outlive ${them}: ${fmtPct(m.youOutlive)}; ${they} outlives you: ${fmtPct(m.partnerOutlives)}"><span style="width:${m.youOutlive * 100}%;background:${c.you}"></span><span style="width:${m.partnerOutlives * 100}%;background:${c.planB}"></span></div>
+      You outlive ${them}: <b>${fmtPct(m.youOutlive)}</b> · ${they} outlives you: <b>${fmtPct(m.partnerOutlives)}</b></div>
+    <div class="couple-card"><div class="lbl">Years together, from now</div><div class="big">${yrs(m.yearsTogether)}</div>expected · you would be about ${ageAt(m.yearsTogether)}</div>
+    <div class="couple-card"><div class="lbl">Years on your own</div><div class="big">${yrs(m.yearsAloneYou)}</div>expected for you · ${fmt1(m.yearsAlonePartner)} for ${them}</div>
+    <div class="couple-card"><div class="lbl">If you are the one left</div><div class="big">${Math.round(m.widowedAgeYou)} <small>your likely age</small></div>if ${they} is: ${they} would be about ${Math.round(m.widowedAgePartner)}</div>
+    <div class="couple-card"><div class="lbl">One of you still alive</div><div class="big">${yrs(m.last.median)}</div>for half of couples like you · 1 in 10: ${fmt1(m.last.p90)} years (you ${ageAt(m.last.p90)})</div>
+    <div class="couple-card"><div class="lbl">Widowhood effect</div>${partner.widowhood
+      ? `<div class="big">${cost(ind.youLE, m.youLE)}</div>off your life expectancy · ${cost(ind.partnerLE, m.partnerLE)} off ${them === 'her' ? 'hers' : 'his'}`
+      : '<div class="big">off</div>the two lives are treated as independent'}</div>`;
+
+  // ── Couple: who is still here (stacked) ──
+  const xs = m.both.map((_, t) => p.age + t);
+  const area = (data, label, color, first) => ({ label, data: data.map((y, i) => ({ x: xs[i], y })), borderColor: color, backgroundColor: color + '99',
+    borderWidth: 1.5, pointRadius: 0, tension: 0.2, fill: first ? 'origin' : '-1' });
   const opts = baseOptions(c);
   opts.scales.x.min = p.age; opts.scales.x.max = MAX_AGE + 1; opts.scales.x.title = { display: true, text: 'Your age', color: c.muted, font: { size: 11 } };
-  opts.scales.y.min = 0; opts.scales.y.max = 1; opts.scales.y.ticks.callback = v => Math.round(v * 100) + '%';
-  opts.plugins.tooltip.callbacks = { title: items => `You ${items[0].parsed.x}, partner ${items[0].parsed.x - p.age + cs.partnerAge}`, label: item => ` ${item.dataset.label}: ${fmtPct(item.parsed.y)}` };
-  drawChart('chCouple', { type: 'line', data: { datasets: [series(cs.j.s1, 'You', c.you), series(cs.j.s2, 'Partner', c.planB),
-    series(cs.j.either, 'At least one of you', c.third, { borderWidth: 3, borderDash: [7, 4] })] }, options: opts });
-  $('legCouple').innerHTML = `<span><i style="border-color:${c.you}"></i>You</span><span><i style="border-color:${c.planB}"></i>Partner</span><span><i class="dash" style="border-color:${c.third}"></i>At least one of you</span>`;
-  let rows = '<tr><th>Your age</th><th>Partner</th><th class="num">You</th><th class="num">Partner</th><th class="num">At least one</th><th class="num">Both</th></tr>';
-  for (let t = 5; t < cs.j.either.length; t += 5)
-    rows += `<tr><td>${p.age + t}</td><td>${cs.partnerAge + t}</td><td class="num">${fmtPct(cs.j.s1[t])}</td><td class="num">${fmtPct(cs.j.s2[t])}</td><td class="num">${fmtPct(cs.j.either[t])}</td><td class="num">${fmtPct(cs.j.both[t])}</td></tr>`;
+  opts.scales.y.min = 0; opts.scales.y.max = 1; opts.scales.y.stacked = true; opts.scales.y.ticks.callback = v => Math.round(v * 100) + '%';
+  opts.plugins.tooltip.callbacks = { title: items => `You ${items[0].parsed.x}, partner ${items[0].parsed.x - p.age + m.partnerAge}`,
+    label: item => ` ${item.dataset.label}: ${fmtPct([m.both, m.onlyYou, m.onlyPartner][item.datasetIndex][item.dataIndex])}` };
+  drawChart('chCouple', { type: 'line', data: { datasets: [area(m.both, 'Both of you', c.third, true), area(m.onlyYou, 'Only you', c.you), area(m.onlyPartner, 'Only your partner', c.planB)] }, options: opts });
+  $('legCouple').innerHTML = `<span><i class="sw" style="background:${c.third}"></i>Both of you</span><span><i class="sw" style="background:${c.you}"></i>Only you</span><span><i class="sw" style="background:${c.planB}"></i>Only your partner</span>`;
+  let rows = '<tr><th>Your age</th><th>Partner</th><th class="num">Both</th><th class="num">Only you</th><th class="num">Only partner</th><th class="num">At least one</th></tr>';
+  for (let t = 5; t < m.both.length; t += 5) {
+    if (m.either[t] < 0.0005) break;
+    rows += `<tr><td>${p.age + t}</td><td>${m.partnerAge + t}</td><td class="num">${fmtPct(m.both[t])}</td><td class="num">${fmtPct(m.onlyYou[t])}</td><td class="num">${fmtPct(m.onlyPartner[t])}</td><td class="num">${fmtPct(m.either[t])}</td></tr>`;
+  }
   $('tblCouple').innerHTML = rows;
-  const t90 = Math.max(0, 90 - p.age);
-  $('coupleStats').innerHTML = `<span>Your partner's life expectancy: <b>${fmt1(cs.partnerLE)}</b>${partner.mode === 'slot' ? '' : ' (the national average for their age and sex)'}; yours: <b>${fmt1(cs.youLE)}</b>.</span>
-    <span>When you would be 90, the chance at least one of you is alive: <b>${fmtPct(cs.eitherAt(t90))}</b>; both: <b>${fmtPct(cs.bothAt(t90))}</b>.</span>
-    <span>Half of couples like you still have one partner alive <b>${fmt1(cs.last.median)} years</b> from now (you would be ${Math.round(p.age + cs.last.median)}); one in ten, after <b>${fmt1(cs.last.p90)} years</b>.</span>
-    <span class="hint">Partners' deaths are somewhat linked (shared habits, the strain of bereavement), so the real “at least one” figures are a little lower than independence gives.</span>`;
+
+  // ── Couple: anniversaries and notes ──
+  const ann = partner.since ? anniversaries(m, partner.since, BASE_YR) : [];
+  $('annivTiles').innerHTML = ann.length ? ann.map(x => `<div class="tile"><div class="tile-label">${x.n}th · ${x.year}</div><div class="tile-value">${fmtPct(x.both)}</div>
+      <div class="tile-sub">chance you are both there</div></div>`).join('')
+    : `<div class="hint">${partner.since ? 'No anniversary from the 10th to the 70th is still ahead.' : 'Add the year you got together to see the chance you both reach your anniversaries.'}</div>`;
+  $('coupleNote').innerHTML = partner.widowhood
+    ? `<b>Linked, not independent.</b> After one of you dies, the survivor's death rate rises by the widowhood effect: ×${WIDOW_HR.M} for a man and ×${WIDOW_HR.F} for a woman, more in the first year (Moon et al. 2011). Your life expectancy as part of this couple is <b>${fmt1(m.youLE)}</b>, ${them === 'her' ? 'hers' : 'his'} <b>${fmt1(m.partnerLE)}</b>. The Methodology tab has the details.`
+    : `<b>Independent lives.</b> With the widowhood effect off, each of you keeps your own death rate whatever happens to the other: your life expectancy as a partnered person is <b>${fmt1(m.youLE)}</b>, ${them === 'her' ? 'hers' : 'his'} <b>${fmt1(m.partnerLE)}</b>.`;
 
   // Life in weeks
   drawWeeks(full, p.age);
@@ -55,6 +87,9 @@ function renderTools(p, full, base, sc, contrib, spots) {
   document.querySelectorAll('[data-sum-fmt]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.sumFmt === sumFormat)));
   $('aiText').value = aiPrompt(p, full, base, sc, contrib, spots);
 }
+
+// The partner menu's value: 'average', 'custom', or 'slot:<name>'.
+function ptModeValue() { return partner.mode === 'slot' ? 'slot:' + partner.name : partner.mode; }
 
 function drawWeeks(full, age) {
   const cv = $('cvWeeks'), lw = lifeWeeks(full.S, age), c = ink();
@@ -115,10 +150,26 @@ function copyText(text, btn) {
 }
 function bindTools() {
   $('ptMode').addEventListener('change', e => {
-    partner = e.target.value ? { ...partner, mode: 'slot', name: e.target.value } : { mode: 'average', sex: partner.sex, age: partner.age };
+    const v = e.target.value;
+    if (v.startsWith('slot:')) partner = { ...partner, mode: 'slot', name: v.slice(5) };
+    else if (v === 'custom') partner = { ...partner, mode: 'custom', state: partner.state || partnerStarter(partner.sex, partner.age) };
+    else partner = { ...partner, mode: 'average' };
     refreshAll();
   });
   $('ptAge').addEventListener('change', e => { const v = Math.round(parseFloat(e.target.value)); if (isFinite(v)) { partner = { ...partner, age: Math.min(100, Math.max(18, v)) }; refreshAll(); } });
+  $('ptSince').addEventListener('change', e => {
+    const v = Math.round(parseFloat(e.target.value));
+    partner = { ...partner, since: isFinite(v) && v >= 1940 && v <= BASE_YR ? v : null };
+    refreshAll();
+  });
+  $('ptWidow').addEventListener('change', e => { partner = { ...partner, widowhood: e.target.checked }; refreshAll(); });
+  $('ptForm').addEventListener('change', () => {
+    const ans = { units: state.units, ...partner.state };
+    readForm($('ptForm'), ans, 'pf');
+    const full = quickStartState({ ...ans, country: state.country, sex: partner.sex, age: partner.age });
+    partner = { ...partner, state: Object.fromEntries(PARTNER_FORM_KEYS.map(k => [k, full[k]])) };
+    refreshAll();
+  });
   const onClick = ev => {
     const t = ev.target.closest ? ev.target.closest('button') : null;
     if (!t) return;

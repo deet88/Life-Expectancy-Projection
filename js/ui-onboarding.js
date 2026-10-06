@@ -18,18 +18,20 @@ function closeQuickStart() {
   if (qs && qs.opener && qs.opener.focus) qs.opener.focus();
   qs = null;
 }
-function qsField(f, a) {
+// One question as a form field. `ns` names the form (data-<ns> attributes), so
+// Quick Start and the partner form in the Tools tab share the same fields.
+function formField(f, a, ns) {
   if (f.show && !f.show(a)) return '';
   const imp = a.units === 'imperial';
-  const id = 'qs_' + f.key, lab = `<label for="${id}">${f.label}${f.optional ? ' <span class="hint">optional</span>' : ''}</label>`;
-  const num = (key, v, min, max, step, unit, extra = '') => `<span class="row"><input type="number" id="${extra || id}" data-qs="${key}" value="${v === null || v === undefined ? '' : v}" min="${min}" max="${max}" step="${step}">${unit ? `<span class="unit">${unit}</span>` : ''}</span>`;
+  const id = ns + '_' + f.key, lab = `<label for="${id}">${f.label}${f.optional ? ' <span class="hint">optional</span>' : ''}</label>`;
+  const num = (key, v, min, max, step, unit, extra = '') => `<span class="row"><input type="number" id="${extra || id}" data-${ns}="${key}" value="${v === null || v === undefined ? '' : v}" min="${min}" max="${max}" step="${step}">${unit ? `<span class="unit">${unit}</span>` : ''}</span>`;
   const opts = (list, v) => list.map(([k, l]) => `<option value="${k}"${String(v) === k ? ' selected' : ''}>${l}</option>`).join('');
   let ctl;
-  if (f.type === 'country') ctl = `<select id="${id}" data-qs="country">${opts(Object.entries(LIFETABLES.countries).map(([k, c]) => [k, c.name]), a.country)}</select>`;
-  else if (f.type === 'select') ctl = `<select id="${id}" data-qs="${f.key}">${opts(f.options, a[f.key])}</select>`;
+  if (f.type === 'country') ctl = `<select id="${id}" data-${ns}="country">${opts(Object.entries(LIFETABLES.countries).map(([k, c]) => [k, c.name]), a.country)}</select>`;
+  else if (f.type === 'select') ctl = `<select id="${id}" data-${ns}="${f.key}">${opts(f.options, a[f.key])}</select>`;
   else if (f.type === 'seg') return `<div class="field"><span class="flabel">${f.label}</span><div class="mode-row">${f.options.map(([k, l]) =>
-    `<button type="button" class="mode-btn" data-qs-seg="${f.key}" data-val="${k}" aria-pressed="${a[f.key] === k}">${l}</button>`).join('')}</div></div>`;
-  else if (f.type === 'check') return `<label class="chk"><input type="checkbox" data-qs="${f.key}"${a[f.key] ? ' checked' : ''}> ${f.label}</label>`;
+    `<button type="button" class="mode-btn" data-${ns}-seg="${f.key}" data-val="${k}" aria-pressed="${a[f.key] === k}">${l}</button>`).join('')}</div></div>`;
+  else if (f.type === 'check') return `<label class="chk"><input type="checkbox" data-${ns}="${f.key}"${a[f.key] ? ' checked' : ''}> ${f.label}</label>`;
   else if (f.type === 'height') {
     if (!imp) ctl = num('height', Math.round(a.height), 120, 230, 1, 'cm');
     else { const t = Math.round(a.height / CM_PER_IN); ctl = `<span class="row">${num('feet', Math.floor(t / 12), 3, 7, 1, 'ft', id)}${num('inches', t % 12, 0, 11, 1, 'in', id + 'i')}</span>`; }
@@ -43,7 +45,7 @@ function renderQS() {
   $('qsCard').innerHTML = `<div class="qs-head"><h2 id="qsTitle">Quick start</h2><button type="button" class="tl-del" data-qs-act="close" aria-label="Close">×</button></div>
     <div class="qs-steps">${QS_STEPS.map((s, i) => `<span class="${i === qs.step ? 'on' : i < qs.step ? 'done' : ''}">${i + 1}. ${s.title}</span>`).join('')}</div>
     <p class="qs-intro">${st.intro}</p>
-    <div class="qs-fields">${st.fields.map(f => qsField(f, qs.ans)).join('')}</div>
+    <div class="qs-fields">${st.fields.map(f => formField(f, qs.ans, 'qs')).join('')}</div>
     <div class="qs-nav">
       <button type="button" class="btn" data-qs-act="back"${qs.step === 0 ? ' disabled' : ''}>← Back</button>
       <span class="hint">Replaces your current answers${events.length ? ' and timeline' : ''}.</span>
@@ -55,11 +57,11 @@ function renderQS() {
   const first = $('qsCard').querySelector('input, select');
   if (first && first.focus) first.focus();
 }
-// Read the visible step's inputs into the answers (metric).
-function readQS() {
-  const a = qs.ans, imp = a.units === 'imperial';
-  $('qsCard').querySelectorAll('[data-qs]').forEach(el => {
-    const k = el.dataset.qs;
+// Read a form's visible inputs into its answers (metric).
+function readForm(box, a, ns) {
+  const imp = a.units === 'imperial';
+  box.querySelectorAll(`[data-${ns}]`).forEach(el => {
+    const k = el.dataset[ns];
     if (el.type === 'checkbox') a[k] = el.checked;
     else if (el.tagName === 'SELECT') a[k] = el.value;
     else if (k === 'feet' || k === 'inches') return;
@@ -67,9 +69,10 @@ function readQS() {
     else if (k === 'sbp') { const v = parseFloat(el.value); a.sbp = isFinite(v) ? v : null; }
     else { const v = parseFloat(el.value); if (isFinite(v)) a[k] = v; }
   });
-  const ft = $('qsCard').querySelector('[data-qs="feet"]'), inch = $('qsCard').querySelector('[data-qs="inches"]');
+  const ft = box.querySelector(`[data-${ns}="feet"]`), inch = box.querySelector(`[data-${ns}="inches"]`);
   if (ft && inch) { const f = parseFloat(ft.value), i = parseFloat(inch.value); if (isFinite(f) && isFinite(i)) a.height = (f * 12 + i) * CM_PER_IN; }
 }
+const readQS = () => readForm($('qsCard'), qs.ans, 'qs');
 function finishQuickStart(plan) {
   state = plan.state; events = plan.events;
   const firstVisit = !seenGet('lifex-toured');
